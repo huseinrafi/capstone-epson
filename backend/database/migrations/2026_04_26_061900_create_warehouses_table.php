@@ -4,18 +4,18 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     /**
      * Run the migrations.
      */
     public function up(): void
     {
-        Schema::create('items', function (Blueprint $table) {
+        Schema::create('warehouses', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->string('barcode')->unique()->index();
-            $table->string('name');
-            $table->string('status')->default('active');
-            $table->timestamp('scanned_at');
+            $table->string('code', 20)->unique();
+            $table->string('name', 100);
+            $table->string('location', 200);
             $table->timestamps();
         });
     }
@@ -25,6 +25,6 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists('items');
+        Schema::dropIfExists('warehouses');
     }
 };
