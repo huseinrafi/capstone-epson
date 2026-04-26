@@ -1,13 +1,19 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import BarcodeGenerator from './components/BarcodeGenerator';
 import BarcodeScanner from './components/BarcodeScanner';
+import Login from './components/Login';
+import Dashboard from './components/Dashboard';
 
 function App() {
   return (
     <div className="app-container">
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<BarcodeGenerator />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          
+          <Route path="/generator" element={<BarcodeGenerator />} />
           <Route path="/scan" element={<BarcodeScanner />} />
         </Routes>
       </BrowserRouter>

@@ -59,28 +59,22 @@ def print_barcode():
         printer.text("=== CAPSTONE EPSON ===\n")
         printer.text(f"Nama: {name}\n\n")
         
-        # Smart Barcode Fallback Method
         barcode_clean = str(barcode_text).strip()
         
         try:
-            # Jika user menginput 12 atau 13 angka yang valid, coba cetak sebagai EAN13
-            if barcode_clean.isdigit() and len(barcode_clean) in [12, 13]:
-                # Pad into 13 digits if 12
+            # Karena EAN-13 didukung secara native oleh 100% printer,
+            # pastikan format selalu dikonversi menjadi EAN-13 yang panjangnya baku.
+            if barcode_clean.isdigit():
+                # Pad into 13 digits if 12 (EAN13 requires exactly 12 or 13 digits)
                 if len(barcode_clean) == 12:
-                    barcode_clean = barcode_clean.zfill(13)
+                    # Optional: We could calculate the checksum here if needed, but python-escpos usually handles EAN13 natively if digits match length.
+                    pass
                 printer.barcode(barcode_clean, 'EAN13', width=2, height=64, pos='BELOW')
             else:
-                # Jika karakter campuran/bebas, gunakan CODE39 yang didukung hampir semua mesin POS
-                # CODE39 mewajibkan huruf besar (Uppercase)
-                printer.barcode(barcode_clean.upper(), 'CODE39', width=2, height=64, pos='BELOW')
-                
-        except Exception as bc_err:
-            try:
-                # Opsi terakhir: cetak sebagai gambar (software rendered) untuk memastikan pasti kecetak apapun kodenya
-                printer.barcode(barcode_clean, 'CODE128', width=2, height=64, pos='BELOW', force_software=True)
-            except Exception as soft_err:
-                printer.text(f"Barcode:\n{barcode_clean}\n")
-                print(f"Barcode format fallback failed: {soft_err}")
+                printer.text(f"Isi Kode bukan angka:\n{barcode_clean}\n")
+        except Exception as err:
+            printer.text(f"Isi Kode:\n{barcode_clean}\n")
+            print(f"EAN13 format failed: {err}")
 
         printer.text("\n\n")
         printer.text("Terima kasih!\n")

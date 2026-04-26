@@ -100,8 +100,8 @@ function BarcodeGenerator() {
             )}
 
             <div className="nav-links">
-                <a onClick={() => navigate('/scan')} className="nav-link" style={{cursor:'pointer'}}>
-                    📷 Buka Kamera Scanner →
+                <a onClick={() => navigate('/dashboard')} className="nav-link" style={{cursor:'pointer'}}>
+                    ← Kembali ke Dashboard Utama
                 </a>
             </div>
         </div>
