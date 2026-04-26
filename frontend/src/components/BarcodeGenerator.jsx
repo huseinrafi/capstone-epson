@@ -1,44 +1,109 @@
 import { useState } from 'react';
 import axios from 'axios';
 import Barcode from 'react-barcode';
+import { useNavigate } from 'react-router-dom';
 
 function BarcodeGenerator() {
     const [name, setName] = useState('');
-    const [barcodeData, setBarcodeData] = useState(null);
+    const [barcodeData, setBarcodeData] = useState('');
+    const [isPrinting, setIsPrinting] = useState(false);
+    const [status, setStatus] = useState(null);
+    const navigate = useNavigate();
 
-    const handleGenerate = async () => {
+    const handleGenerate = (e) => {
+        e.preventDefault();
+        if(!name.trim()) {
+            setStatus({ type: 'error', message: 'Silahkan isi produk/barcode' });
+            return;
+        }
+        setBarcodeData(name);
+        setStatus(null);
+    };
+
+    const handlePrint = async () => {
+        if (!barcodeData) return;
+        setIsPrinting(true);
+        setStatus(null);
+        
         try {
-            const res = await axios.post('http://localhost:8000/api/items', { name });
-            setBarcodeData(res.data.data);
+            // Communicate with the new Python API running on port 5001
+            const res = await axios.post('http://localhost:5001/api/print', { 
+                barcode: barcodeData,
+                name: "Scanned Item" 
+            });
+            
+            if(res.data.success) {
+                setStatus({ type: 'success', message: '✔ Printer Berhasil Mencetak!' });
+            } else {
+                setStatus({ type: 'error', message: res.data.error || 'Gagal tersambung ke printer.' });
+            }
         } catch (error) {
-            alert('Gagal generate barcode');
+            setStatus({ type: 'error', message: 'Server Print Offline atau Terjadi Kesalahan.' });
+        } finally {
+            setIsPrinting(false);
         }
     };
 
     return (
-        <div style={{ padding: '20px', textAlign: 'center' }}>
-            <h1>Generator Barcode</h1>
-            <input
-                type="text"
-                placeholder="Nama Barang"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                style={{ padding: '10px', marginRight: '10px' }}
-            />
-            <button onClick={handleGenerate} style={{ padding: '10px 20px' }}>
-                Buat Barcode
-            </button>
+        <div className="glass-panel">
+            <div>
+                <h1>Generator Barcode</h1>
+                <p className="subtitle">Cetak barcode fisik dari Capstone Epson</p>
+            </div>
+
+            <form onSubmit={handleGenerate} className="input-group">
+                <label className="input-label">Data Barcode</label>
+                <input
+                    type="text"
+                    className="modern-input"
+                    placeholder="Contoh: 12345678"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoComplete="off"
+                />
+                <button type="submit" className="btn btn-secondary" style={{marginTop: '0.5rem'}}>
+                    Lihat Barcode
+                </button>
+            </form>
 
             {barcodeData && (
-                <div style={{ marginTop: '30px' }}>
-                    <Barcode value={barcodeData.barcode} />
-                    <p>Barcode: {barcodeData.barcode}</p>
-                    <p>Nama: {barcodeData.name}</p>
-                    <a href="/scan" style={{ display: 'block', marginTop: '20px' }}>
-                        Ke Halaman Scan →
-                    </a>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div className="barcode-preview">
+                        <Barcode 
+                            value={barcodeData} 
+                            background="transparent" 
+                            lineColor="#000000" 
+                            width={2} 
+                            height={60} 
+                            displayValue={true}
+                        />
+                    </div>
+                    
+                    <button 
+                        onClick={handlePrint} 
+                        className="btn btn-primary"
+                        disabled={isPrinting}
+                    >
+                        {isPrinting ? (
+                            <><div className="spinner"></div> Mencetak...</>
+                        ) : (
+                            <>🖨️ Cetak ke Thermal Printer</>
+                        )}
+                    </button>
                 </div>
             )}
+
+            {status && (
+                <div className={`status-badge ${status.type === 'success' ? 'status-success' : 'status-error'}`}>
+                    {status.message}
+                </div>
+            )}
+
+            <div className="nav-links">
+                <a onClick={() => navigate('/scan')} className="nav-link" style={{cursor:'pointer'}}>
+                    📷 Buka Kamera Scanner →
+                </a>
+            </div>
         </div>
     );
 }
