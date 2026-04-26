@@ -56,7 +56,8 @@ function BarcodeScanner() {
         if (!scanResult) return;
         setIsPrinting(true);
         try {
-            const res = await axios.post('http://localhost:5001/api/print', { 
+            const apiUrl = window.location.protocol + '//' + window.location.hostname + ':5001/api/print';
+            const res = await axios.post(apiUrl, { 
                 barcode: scanResult,
                 name: "Scanned Item" 
             });

@@ -26,8 +26,8 @@ function BarcodeGenerator() {
         setStatus(null);
         
         try {
-            // Communicate with the new Python API running on port 5001
-            const res = await axios.post('http://localhost:5001/api/print', { 
+            const apiUrl = window.location.protocol + '//' + window.location.hostname + ':5001/api/print';
+            const res = await axios.post(apiUrl, { 
                 barcode: barcodeData,
                 name: "Scanned Item" 
             });

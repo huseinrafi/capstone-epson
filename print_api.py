@@ -93,6 +93,7 @@ def print_barcode():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    print("Mulai Print API Server di Port 5001...")
+    print("Mulai Print API Server di Port 5001 (HTTPS Enabled)...")
     # Pakai host 0.0.0.0 agar bisa diakses dari mana saja kalau perlu
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    # Menggunakan SSL agar dapat menerima request dari frontend HP yang jalan di HTTPS
+    app.run(host='0.0.0.0', port=5001, debug=True, ssl_context=('cert.pem', 'key.pem'))
