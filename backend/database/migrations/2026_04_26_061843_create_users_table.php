@@ -15,9 +15,11 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $table->foreignUuid('role_id')->constrained('roles')->restrictOnDelete();
             $table->string('name');
+            $table->string('username', 50)->unique();
             $table->string('email')->unique();
             $table->timestamp('email_verified_at');
             $table->string('password', 255);
+            $table->boolean('is_active')->default(true);
             $table->rememberToken();
             $table->timestamps();
             $table->softDeletes();
