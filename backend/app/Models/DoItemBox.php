@@ -5,27 +5,27 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class DoItem extends Model
+class DoItemBox extends Model
 {
     use HasUuids;
 
+    public const STATUS_PENDING = 'PENDING';
+    public const STATUS_SCANNED = 'SCANNED';
+    public const STATUS_MISSING = 'MISSING';
+
     protected $fillable = [
         'delivery_order_id',
-        'sku',
-        'part_name',
-        'vendor_barcode',
-        'expected_qty',
-        'scanned_qty',
-        'final_status',
+        'do_item_id',
+        'barcode',
+        'status',
+        'scanned_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'expected_qty' => 'integer',
-            'scanned_qty' => 'integer',
+            'scanned_at' => 'datetime',
         ];
     }
 
@@ -34,8 +34,8 @@ class DoItem extends Model
         return $this->belongsTo(DeliveryOrder::class);
     }
 
-    public function boxes(): HasMany
+    public function doItem(): BelongsTo
     {
-        return $this->hasMany(DoItemBox::class);
+        return $this->belongsTo(DoItem::class);
     }
 }

@@ -6,11 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreDeliveryOrderRequest;
 use App\Http\Requests\UpdateDeliveryOrderRequest;
 use App\Models\DeliveryOrder;
+use App\Models\DoItem;
 use App\Traits\ApiResponse;
-use DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\DB;
 
 class DeliveryOrderController extends Controller
 {
@@ -56,9 +56,11 @@ class DeliveryOrderController extends Controller
                 'notes' => $validated['notes'] ?? null,
             ]);
 
-            $order->items()->createMany($validated['items']);
+            foreach ($validated['items'] as $itemData) {
+                $this->createItemWithBoxes($order, $itemData);
+            }
 
-            return $order->load(['vendor', 'warehouse', 'items']);
+            return $order->load(['vendor', 'warehouse', 'items.boxes']);
         });
 
         return $this->successResponse($order, 'Manifest berhasil ditambahkan.', 201);
@@ -67,7 +69,7 @@ class DeliveryOrderController extends Controller
     public function show(DeliveryOrder $deliveryOrder): JsonResponse
     {
         return $this->successResponse(
-            $deliveryOrder->load(['vendor', 'warehouse', 'adminUser.role', 'items']),
+            $deliveryOrder->load(['vendor', 'warehouse', 'adminUser.role', 'items.boxes']),
             'Detail manifest berhasil diambil.'
         );
     }
@@ -92,9 +94,11 @@ class DeliveryOrderController extends Controller
             ]);
 
             $deliveryOrder->items()->delete();
-            $deliveryOrder->items()->createMany($validated['items']);
+            foreach ($validated['items'] as $itemData) {
+                $this->createItemWithBoxes($deliveryOrder, $itemData);
+            }
 
-            return $deliveryOrder->load(['vendor', 'warehouse', 'items']);
+            return $deliveryOrder->load(['vendor', 'warehouse', 'items.boxes']);
         });
 
         return $this->successResponse($order, 'Manifest berhasil diperbarui.');
@@ -109,5 +113,38 @@ class DeliveryOrderController extends Controller
         $deliveryOrder->delete();
 
         return $this->successResponse(null, 'Manifest DO berhasil dibatalkan.');
+    }
+
+    private function createItemWithBoxes(DeliveryOrder $order, array $itemData): DoItem
+    {
+        $item = $order->items()->create($itemData);
+
+        $boxes = [];
+
+        for ($index = 0; $index < $item->expected_qty; $index++) {
+            $boxes[] = [
+                'delivery_order_id' => $order->id,
+                'barcode' => $item->vendor_barcode . '-' . $this->barcodeSuffix($index),
+                'status' => 'PENDING',
+            ];
+        }
+
+        $item->boxes()->createMany($boxes);
+
+        return $item;
+    }
+
+    private function barcodeSuffix(int $index): string
+    {
+        $suffix = '';
+        $index++;
+
+        while ($index > 0) {
+            $index--;
+            $suffix = chr(65 + ($index % 26)) . $suffix;
+            $index = intdiv($index, 26);
+        }
+
+        return $suffix;
     }
 }
