@@ -61,8 +61,19 @@ class DeliveryOrder extends Model
         return $this->hasMany(DoItem::class);
     }
 
+    public function boxes(): HasMany
+    {
+        return $this->hasMany(DoItemBox::class);
+    }
+
     public function isPending(): bool
     {
         return $this->status === self::STATUS_PENDING;
     }
+
+    public function isInProgress(): bool
+    {
+        return $this->status === self::STATUS_IN_PROGRESS;
+    }
+
 }

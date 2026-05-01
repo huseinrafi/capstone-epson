@@ -27,7 +27,7 @@ class StoreDeliveryOrderRequest extends ApiFormRequest
             'items' => ['required', 'array', 'min:1'],
             'items.*.sku' => ['required', 'string', 'max:50'],
             'items.*.part_name' => ['required', 'string', 'max:150'],
-            'items.*.vendor_barcode' => ['nullable', 'string', 'max:100'],
+            'items.*.vendor_barcode' => ['required', 'string', 'max:90'],
             'items.*.expected_qty' => ['required', 'integer', 'min:1'],
         ];
     }

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DeliveryOrderController;
 use App\Http\Controllers\Api\ItemController;
+use App\Http\Controllers\Api\InboundScanController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix("v1")->group(function () {
@@ -17,6 +18,10 @@ Route::prefix("v1")->group(function () {
             Route::get('/items/barcode/{barcode}', [ItemController::class, 'showByBarcode']);
             Route::get('/delivery-orders/queue', [DeliveryOrderController::class, 'queue']);
             Route::get('/delivery-orders/{delivery_order}', [DeliveryOrderController::class, 'show']);
+
+            Route::post('/delivery-orders/{delivery_order}/inbound/start', [InboundScanController::class, 'start']);
+            Route::post('/delivery-orders/{delivery_order}/inbound/scans', [InboundScanController::class, 'scan']);
+            Route::post('/delivery-orders/{delivery_order}/inbound/finish', [InboundScanController::class, 'finish']);
         });
 
         Route::middleware('role:admin_gudang,supervisor,manajer')->group(function () {
