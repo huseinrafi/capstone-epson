@@ -19,7 +19,7 @@ class InboundScanController extends Controller
 
     public function start(DeliveryOrder $deliveryOrder): JsonResponse
     {
-        if (!$deliveryOrder->isPending()) {
+        if (! $deliveryOrder->isPending()) {
             return $this->badRequestResponse('Manifest tidak dalam status PENDING');
         }
 
@@ -51,7 +51,7 @@ class InboundScanController extends Controller
 
         return $this->successResponse(
             array_merge($result['data'], [
-                'manifest_status' => DeliveryOrder::STATUS_IN_PROGRESS,
+                'manifest_status' => $result['data']['manifest_status'] ?? DeliveryOrder::STATUS_IN_PROGRESS,
             ]),
             $result['message']
         );
@@ -135,5 +135,4 @@ class InboundScanController extends Controller
             'reported_by' => $reportedBy,
         ]);
     }
-
 }
