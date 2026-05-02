@@ -13,9 +13,13 @@ class DeliveryOrder extends Model
     use HasUuids, SoftDeletes;
 
     public const STATUS_PENDING = 'PENDING';
+
     public const STATUS_IN_PROGRESS = 'IN_PROGRESS';
+
     public const STATUS_COMPLETED = 'COMPLETED';
+
     public const STATUS_HOLD_INBOUND = 'HOLD_INBOUND';
+
     public const STATUS_RETURNED = 'RETURNED';
 
     protected $fillable = [
@@ -66,6 +70,12 @@ class DeliveryOrder extends Model
         return $this->hasMany(DoItemBox::class);
     }
 
+    public function anomalies(): HasMany
+    {
+        return $this->hasMany(Anomaly::class, 'reference_id')
+            ->where('reference_type', self::class);
+    }
+
     public function isPending(): bool
     {
         return $this->status === self::STATUS_PENDING;
@@ -75,5 +85,4 @@ class DeliveryOrder extends Model
     {
         return $this->status === self::STATUS_IN_PROGRESS;
     }
-
 }
