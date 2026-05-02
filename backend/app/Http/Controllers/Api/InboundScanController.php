@@ -6,9 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreInboundScanRequest;
 use App\Models\Anomaly;
 use App\Models\DeliveryOrder;
-use App\Models\DoItem;
 use App\Models\DoItemBox;
-use App\Models\ScanResult;
+use App\Services\InboundReconciliationService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,112 +34,28 @@ class InboundScanController extends Controller
         );
     }
 
-    public function scan(StoreInboundScanRequest $request, DeliveryOrder $deliveryOrder): JsonResponse
-    {
+    public function scan(
+        StoreInboundScanRequest $request,
+        DeliveryOrder $deliveryOrder,
+        InboundReconciliationService $service
+    ): JsonResponse {
         if ($deliveryOrder->status !== DeliveryOrder::STATUS_IN_PROGRESS) {
             return $this->badRequestResponse('Manifest tidak sedang dalam proses scan.');
         }
 
-        $payload = $request->validated();
-        $barcode = $payload['barcode'];
+        $result = $service->reconcile(
+            $deliveryOrder,
+            $request->validated(),
+            $request->user('api')
+        );
 
-        return DB::transaction(function () use ($deliveryOrder, $request, $payload, $barcode) {
-            $box = DoItemBox::query()
-                ->where('delivery_order_id', $deliveryOrder->id)
-                ->where('barcode', $barcode)
-                ->lockForUpdate()
-                ->first();
-
-            if (!$box) {
-                $scan = ScanResult::create([
-                    'delivery_order_id' => $deliveryOrder->id,
-                    'do_item_id' => null,
-                    'operator_id' => $request->user('api')->id,
-                    'scanned_barcode' => $barcode,
-                    'result_status' => ScanResult::STATUS_NOT_FOUND,
-                    'scanned_at' => now(),
-                    'device_id' => $payload['device_id'] ?? null,
-                ]);
-
-                $this->createInboundAnomaly(
-                    $deliveryOrder,
-                    'UNEXPECTED',
-                    substr($barcode, 0, 50),
-                    0,
-                    1,
-                    $request->user('api')->id
-                );
-
-                $deliveryOrder->update(['status' => DeliveryOrder::STATUS_HOLD_INBOUND]);
-
-                return $this->successResponse([
-                    'scan' => $scan,
-                    'result_status' => ScanResult::STATUS_NOT_FOUND,
-                    'print_label' => false,
-                    'manifest_status' => DeliveryOrder::STATUS_HOLD_INBOUND,
-                ], 'Barcode tidak sesuai manifest. Manifest masuk HOLD_INBOUND.');
-            }
-
-            $item = DoItem::query()
-                ->whereKey($box->do_item_id)
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            if ($box->status === DoItemBox::STATUS_SCANNED) {
-                return $this->errorResponse(
-                    'Barcode box ini sudah pernah di-scan.',
-                    409,
-                    [
-                        'barcode' => $box->barcode,
-                        'sku' => $item->sku,
-                        'scanned_at' => $box->scanned_at,
-                    ]
-                );
-            }
-
-            $box->update([
-                'status' => DoItemBox::STATUS_SCANNED,
-                'scanned_at' => now(),
-            ]);
-
-            $item->increment('scanned_qty');
-            $item->refresh();
-
-            if ($item->scanned_qty === $item->expected_qty) {
-                $item->update(['final_status' => 'MATCH']);
-            }
-
-            $deliveryOrder->increment('scanned_total');
-
-            $scan = ScanResult::create([
-                'delivery_order_id' => $deliveryOrder->id,
-                'do_item_id' => $item->id,
-                'operator_id' => $request->user('api')->id,
-                'scanned_barcode' => $barcode,
-                'result_status' => ScanResult::STATUS_MATCH,
-                'scanned_at' => now(),
-                'device_id' => $payload['device_id'] ?? null,
-            ]);
-
-            return $this->successResponse([
-                'scan' => $scan,
-                'result_status' => ScanResult::STATUS_MATCH,
-                'print_label' => true,
-                'label_payload' => [
-                    'delivery_order_id' => $deliveryOrder->id,
-                    'do_number' => $deliveryOrder->do_number,
-                    'sku' => $item->sku,
-                    'part_name' => $item->part_name,
-                    'vendor_barcode' => $item->vendor_barcode,
-                    'box_barcode' => $box->barcode,
-                ],
-                'item_progress' => [
-                    'expected_qty' => $item->expected_qty,
-                    'scanned_qty' => $item->scanned_qty,
-                ],
+        return $this->successResponse(
+            array_merge($result['data'], [
                 'manifest_status' => DeliveryOrder::STATUS_IN_PROGRESS,
-            ], 'Scan MATCH. Silakan cetak label internal.');
-        });
+            ]),
+            $result['message']
+        );
+
     }
 
     public function finish(Request $request, DeliveryOrder $deliveryOrder): JsonResponse
@@ -170,7 +85,7 @@ class InboundScanController extends Controller
 
                 $this->createInboundAnomaly(
                     $deliveryOrder,
-                    'MISSING',
+                    Anomaly::DISCREPANCY_MISSING,
                     $item->sku,
                     $item->expected_qty,
                     $item->scanned_qty,
@@ -220,4 +135,5 @@ class InboundScanController extends Controller
             'reported_by' => $reportedBy,
         ]);
     }
+
 }
