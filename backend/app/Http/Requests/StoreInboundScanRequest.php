@@ -13,6 +13,7 @@ class StoreInboundScanRequest extends ApiFormRequest
     {
         return [
             'barcode' => ['required', 'string', 'max:100'],
+            'sku' => ['nullable', 'string', 'max:50'],
             'device_id' => ['nullable', 'string', 'max:50'],
         ];
     }

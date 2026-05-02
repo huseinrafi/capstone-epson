@@ -13,6 +13,10 @@ class Anomaly extends Model
 
     public const TYPE_INBOUND_DISCREPANCY = 'INBOUND_DISCREPANCY';
     public const STATUS_PENDING_REVIEW = 'PENDING_REVIEW';
+    public const DISCREPANCY_MISSING = 'MISSING';
+    public const DISCREPANCY_OVER = 'OVER';
+    public const DISCREPANCY_UNEXPECTED = 'UNEXPECTED';
+    public const DISCREPANCY_MISMATCH = 'MISMATCH';
 
     protected $fillable = [
         'anomaly_type',
