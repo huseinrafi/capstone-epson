@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Constants\RoleConstant;
+use App\Jobs\PrintInternalLabelJob;
 use App\Models\Anomaly;
 use App\Models\DeliveryOrder;
 use App\Models\DoItem;
 use App\Models\DoItemBox;
+use App\Models\InternalItem;
 use App\Models\ScanResult;
 use App\Models\SupervisorNotification;
 use App\Models\User;
@@ -94,6 +96,9 @@ class InboundReconciliationService
             $deliveryOrder->increment('scanned_total');
 
             $scan = $this->recordScan($deliveryOrder, $item, $operator, $payload, ScanResult::STATUS_MATCH);
+            $internalItem = $this->createInternalItem($deliveryOrder, $item, $operator);
+
+            DB::afterCommit(fn () => PrintInternalLabelJob::dispatch($internalItem->id));
 
             return $this->result(
                 $scan,
@@ -102,13 +107,14 @@ class InboundReconciliationService
                 'Scan MATCH.',
                 [
                     'label_payload' => [
+                        'internal_item_id' => $internalItem->id,
+                        'internal_barcode' => $internalItem->internal_barcode,
                         'delivery_order_id' => $deliveryOrder->id,
                         'do_number' => $deliveryOrder->do_number,
                         'sku' => $item->sku,
                         'part_name' => $item->part_name,
-                        'vendor_barcode' => $item->vendor_barcode,
-                        'box_barcode' => $box->barcode,
                     ],
+                    'print_status' => 'QUEUED',
                     'item_progress' => [
                         'expected_qty' => $item->expected_qty,
                         'scanned_qty' => $item->scanned_qty,
@@ -220,5 +226,31 @@ class InboundReconciliationService
                 'print_label' => $printLabel,
             ], $extraData),
         ];
+    }
+
+    private function createInternalItem(DeliveryOrder $deliveryOrder, DoItem $item, User $operator): InternalItem
+    {
+        return InternalItem::create([
+            'internal_barcode' => $this->generateInternalBarcode(),
+            'do_item_id' => $item->id,
+            'delivery_order_id' => $deliveryOrder->id,
+            'current_warehouse_id' => $deliveryOrder->warehouse_id,
+            'received_by' => $operator->id,
+            'sku' => $item->sku,
+            'part_name' => $item->part_name,
+            'status' => InternalItem::STATUS_AVAILABLE,
+            'received_at' => now(),
+        ]);
+    }
+
+    private function generateInternalBarcode(): string
+    {
+        $prefix = 'EPS-' . now()->format('Ymd') . '-';
+
+        do {
+            $barcode = $prefix . str_pad((string) random_int(1, 99999), 5, '0', STR_PAD_LEFT);
+        } while (InternalItem::where('internal_barcode', $barcode)->exists());
+
+        return $barcode;
     }
 }
