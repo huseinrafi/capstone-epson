@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'print' => [
+        'url' => env('PRINT_SERVICE_URL', 'http://127.0.0.1:5001/api/print'),
+        'token' => env('PRINT_SERVICE_TOKEN'),
+    ],
+
 ];
