@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Constants\RoleConstant;
 use App\Jobs\PrintInternalLabelJob;
 use App\Models\Anomaly;
 use App\Models\DeliveryOrder;
@@ -10,7 +9,6 @@ use App\Models\DoItem;
 use App\Models\DoItemBox;
 use App\Models\InternalItem;
 use App\Models\ScanResult;
-use App\Models\SupervisorNotification;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +26,7 @@ class InboundReconciliationService
                 ->lockForUpdate()
                 ->first();
 
-            if (! $box) {
+            if (!$box) {
                 $scan = $this->recordScan($deliveryOrder, null, $operator, $payload, ScanResult::STATUS_NOT_FOUND);
 
                 $anomaly = $this->recordAnomaly(
@@ -98,7 +96,7 @@ class InboundReconciliationService
             $scan = $this->recordScan($deliveryOrder, $item, $operator, $payload, ScanResult::STATUS_MATCH);
             $internalItem = $this->createInternalItem($deliveryOrder, $item, $operator);
 
-            DB::afterCommit(fn () => PrintInternalLabelJob::dispatch($internalItem->id));
+            DB::afterCommit(fn() => PrintInternalLabelJob::dispatch($internalItem->id));
 
             return $this->result(
                 $scan,
@@ -168,33 +166,9 @@ class InboundReconciliationService
             'status' => DeliveryOrder::STATUS_HOLD_INBOUND,
         ]);
 
-        $this->notifySupervisors($deliveryOrder, $anomaly, $operator);
+        app(AnomalyNotificationService::class)->notifySupervisorsForNewAnomaly($anomaly);
 
         return $anomaly;
-    }
-
-    private function notifySupervisors(DeliveryOrder $deliveryOrder, Anomaly $anomaly, User $operator): void
-    {
-        $supervisors = User::query()
-            ->where('is_active', true)
-            ->whereHas('role', fn ($query) => $query->where('slug', RoleConstant::SUPERVISOR_SLUG))
-            ->get();
-
-        foreach ($supervisors as $supervisor) {
-            SupervisorNotification::create([
-                'user_id' => $supervisor->id,
-                'anomaly_id' => $anomaly->id,
-                'title' => 'Anomali inbound perlu review',
-                'message' => sprintf(
-                    'DO %s memiliki anomali %s pada SKU %s, dilaporkan oleh %s.',
-                    $deliveryOrder->do_number,
-                    $anomaly->discrepancy_type,
-                    $anomaly->affected_sku,
-                    $operator->name
-                ),
-                'review_url' => "/api/v1/anomalies/{$anomaly->id}",
-            ]);
-        }
     }
 
     private function anomalyResult(

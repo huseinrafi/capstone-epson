@@ -9,6 +9,7 @@ use App\Models\AuditLog;
 use App\Models\DeliveryOrder;
 use App\Models\DoItemBox;
 use App\Models\Transit;
+use App\Services\AnomalyNotificationService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -117,6 +118,9 @@ class AnomalyReviewController extends Controller
                 'ip_address' => $request->ip(),
             ]);
 
+            app(AnomalyNotificationService::class)
+                ->notifyAfterReview($lockedAnomaly->fresh(), $validated['decision']);
+
             return $lockedAnomaly->fresh(['reference', 'reviewer.role', 'evidences']);
         });
 
@@ -135,7 +139,7 @@ class AnomalyReviewController extends Controller
 
     private function decisionToDeliveryOrderStatus(string $decision, ?DeliveryOrder $deliveryOrder): ?string
     {
-        if (! $deliveryOrder) {
+        if (!$deliveryOrder) {
             return null;
         }
 
@@ -149,7 +153,7 @@ class AnomalyReviewController extends Controller
 
     private function decisionToTransitStatus(string $decision, ?Transit $transit): ?string
     {
-        if (! $transit) {
+        if (!$transit) {
             return null;
         }
 
