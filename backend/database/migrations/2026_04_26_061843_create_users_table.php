@@ -1,8 +1,12 @@
 <?php
 
+use App\Constants\RoleConstant;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 return new class extends Migration
 {
@@ -24,6 +28,20 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
         });
+
+        DB::table('users')->insert([
+            'id' => (string) Str::uuid(),
+            'role_id' => RoleConstant::SUPERVISOR_ID,
+            'name' => 'User Operator',
+            'username' => 'operator01',
+            'email' => 'operator@example.com',
+            'email_verified_at' => now(),
+            'password' => Hash::make('password123'),
+            'is_active' => true,
+            'remember_token' => Str::random(10),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->string('email')->primary();

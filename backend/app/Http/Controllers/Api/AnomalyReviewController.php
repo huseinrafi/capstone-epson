@@ -8,6 +8,7 @@ use App\Models\Anomaly;
 use App\Models\AuditLog;
 use App\Models\DeliveryOrder;
 use App\Models\DoItemBox;
+use App\Models\Transit;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,8 +21,8 @@ class AnomalyReviewController extends Controller
     public function index(Request $request): JsonResponse
     {
         $anomalies = Anomaly::query()
-            ->with(['reference.vendor', 'reference.warehouse', 'reporter.role', 'evidences.uploader'])
-            ->where('anomaly_type', Anomaly::TYPE_INBOUND_DISCREPANCY)
+            ->with(['reference', 'reporter.role', 'evidences.uploader'])
+            ->when($request->anomaly_type, fn($query, $type) => $query->where('anomaly_type', $type))
             ->where('status', Anomaly::STATUS_PENDING_REVIEW)
             ->latest()
             ->paginate($request->integer('per_page', 15));
@@ -32,7 +33,7 @@ class AnomalyReviewController extends Controller
     public function show(Anomaly $anomaly): JsonResponse
     {
         return $this->successResponse(
-            $anomaly->load(['reference.vendor', 'reference.warehouse', 'reporter.role', 'reviewer.role', 'scanResult', 'evidences.uploader.role']),
+            $anomaly->load(['reference', 'reporter.role', 'reviewer.role', 'scanResult', 'evidences.uploader.role']),
             'Detail anomali berhasil diambil.'
         );
     }
@@ -58,14 +59,19 @@ class AnomalyReviewController extends Controller
             $deliveryOrder = $lockedAnomaly->reference_type === DeliveryOrder::class
                 ? DeliveryOrder::query()->whereKey($lockedAnomaly->reference_id)->lockForUpdate()->first()
                 : null;
+            $transit = $lockedAnomaly->reference_type === Transit::class
+                ? Transit::query()->whereKey($lockedAnomaly->reference_id)->lockForUpdate()->first()
+                : null;
 
             $oldValue = [
                 'anomaly_status' => $lockedAnomaly->status,
                 'delivery_order_status' => $deliveryOrder?->status,
+                'transit_status' => $transit?->status,
             ];
 
             $decisionStatus = $this->decisionToAnomalyStatus($validated['decision']);
             $deliveryOrderStatus = $this->decisionToDeliveryOrderStatus($validated['decision'], $deliveryOrder);
+            $transitStatus = $this->decisionToTransitStatus($validated['decision'], $transit);
 
             $lockedAnomaly->update([
                 'status' => $decisionStatus,
@@ -88,6 +94,13 @@ class AnomalyReviewController extends Controller
                 ]);
             }
 
+            if ($transit) {
+                $transit->update([
+                    'status' => $transitStatus,
+                    'arrived_at' => $transitStatus === Transit::STATUS_TRANSIT_COMPLETED ? now() : $transit->arrived_at,
+                ]);
+            }
+
             AuditLog::create([
                 'user_id' => $request->user('api')->id,
                 'action' => 'ANOMALY_REVIEWED',
@@ -98,12 +111,13 @@ class AnomalyReviewController extends Controller
                     'decision' => $validated['decision'],
                     'anomaly_status' => $decisionStatus,
                     'delivery_order_status' => $deliveryOrderStatus,
+                    'transit_status' => $transitStatus,
                 ],
                 'notes' => $validated['notes'] ?? null,
                 'ip_address' => $request->ip(),
             ]);
 
-            return $lockedAnomaly->fresh(['reference.vendor', 'reference.warehouse', 'reviewer.role', 'evidences']);
+            return $lockedAnomaly->fresh(['reference', 'reviewer.role', 'evidences']);
         });
 
         return $this->successResponse($reviewed, 'Keputusan supervisor berhasil disimpan.');
@@ -130,6 +144,19 @@ class AnomalyReviewController extends Controller
             'HOLD' => DeliveryOrder::STATUS_HOLD_INBOUND,
             'RETURN' => DeliveryOrder::STATUS_RETURNED,
             'RECOUNT' => DeliveryOrder::STATUS_IN_PROGRESS,
+        };
+    }
+
+    private function decisionToTransitStatus(string $decision, ?Transit $transit): ?string
+    {
+        if (! $transit) {
+            return null;
+        }
+
+        return match ($decision) {
+            'APPROVE' => Transit::STATUS_TRANSIT_COMPLETED,
+            'HOLD', 'RETURN' => Transit::STATUS_INVESTIGATION_REQUIRED,
+            'RECOUNT' => Transit::STATUS_IN_TRANSIT,
         };
     }
 

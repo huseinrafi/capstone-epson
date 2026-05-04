@@ -11,6 +11,9 @@ class InternalItem extends Model
     use HasUuids;
 
     public const STATUS_AVAILABLE = 'AVAILABLE';
+    public const STATUS_IN_TRANSIT = 'IN_TRANSIT';
+    public const STATUS_USED = 'USED';
+    public const STATUS_DISPOSED = 'DISPOSED';
 
     protected $fillable = [
         'internal_barcode',

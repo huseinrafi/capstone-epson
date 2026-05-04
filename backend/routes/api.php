@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\DeliveryOrderController;
 use App\Http\Controllers\Api\InboundScanController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\SupervisorNotificationController;
+use App\Http\Controllers\Api\TransitController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -27,12 +28,21 @@ Route::prefix('v1')->group(function () {
             Route::post('/delivery-orders/{delivery_order}/inbound/finish', [InboundScanController::class, 'finish']);
 
             Route::post('/anomalies/{anomaly}/evidences', [AnomalyEvidenceController::class, 'store']);
+
+            Route::get('/transits', [TransitController::class, 'index']);
+            Route::get('/transits/{transit}', [TransitController::class, 'show']);
+            Route::post('/transits/{transit}/scan-out', [TransitController::class, 'scanOut']);
+            Route::post('/transits/{transit}/depart', [TransitController::class, 'depart']);
+            Route::post('/transits/{transit}/scan-in', [TransitController::class, 'scanIn']);
+            Route::post('/transits/{transit}/complete', [TransitController::class, 'complete']);
         });
 
         Route::middleware('role:admin_gudang,supervisor,manajer')->group(function () {
             Route::get('/delivery-orders', [DeliveryOrderController::class, 'index']);
             Route::post('/delivery-orders', [DeliveryOrderController::class, 'store']);
             Route::apiResource('/items', ItemController::class);
+
+            Route::post('/transits', [TransitController::class, 'store']);
         });
 
         Route::middleware('role:supervisor,manajer')->group(function () {
