@@ -2,16 +2,14 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Constants\RoleConstant;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreTransitRequest;
 use App\Http\Requests\TransitScanRequest;
 use App\Models\Anomaly;
 use App\Models\InternalItem;
-use App\Models\SupervisorNotification;
 use App\Models\Transit;
 use App\Models\TransitItem;
-use App\Models\User;
+use App\Services\AnomalyNotificationService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -53,8 +51,7 @@ class TransitController extends Controller
             }
 
             $invalidItems = $items->filter(
-                fn($item) =>
-                $item->current_warehouse_id !== $validated['origin_warehouse_id']
+                fn($item) => $item->current_warehouse_id !== $validated['origin_warehouse_id']
                 || $item->status !== InternalItem::STATUS_AVAILABLE
             );
 
@@ -165,7 +162,6 @@ class TransitController extends Controller
             if ($pendingItem) {
                 return $this->badRequestResponse('Masih ada barang yang belum discan keluar.');
             }
-
 
             $transit->items()->with('internalItem')->get()->each(function ($item) {
                 $item->internalItem->update(['status' => InternalItem::STATUS_IN_TRANSIT]);
@@ -328,7 +324,7 @@ class TransitController extends Controller
             'reported_by' => $request->user('api')->id,
         ]);
 
-        $this->notifySupervisors($transit, $anomaly, $request->user('api'));
+        app(AnomalyNotificationService::class)->notifySupervisorsForNewAnomaly($anomaly);
 
         return $anomaly;
     }
@@ -353,29 +349,4 @@ class TransitController extends Controller
             ->where('status', Anomaly::STATUS_PENDING_REVIEW)
             ->exists();
     }
-
-    private function notifySupervisors(Transit $transit, Anomaly $anomaly, User $operator): void
-    {
-        $supervisors = User::query()
-            ->where('is_active', true)
-            ->whereHas('role', fn($query) => $query->where('slug', RoleConstant::SUPERVISOR_SLUG))
-            ->get();
-
-        foreach ($supervisors as $supervisor) {
-            SupervisorNotification::create([
-                'user_id' => $supervisor->id,
-                'anomaly_id' => $anomaly->id,
-                'title' => 'Anomali transit perlu review',
-                'message' => sprintf(
-                    'Transit %s memiliki anomali %s pada %s, dilaporkan oleh %s.',
-                    $transit->transit_number,
-                    $anomaly->discrepancy_type,
-                    $anomaly->affected_sku,
-                    $operator->name
-                ),
-                'review_url' => "/api/v1/anomalies/{$anomaly->id}",
-            ]);
-        }
-    }
-
 }

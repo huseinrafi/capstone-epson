@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DeliveryOrderController;
 use App\Http\Controllers\Api\InboundScanController;
 use App\Http\Controllers\Api\ItemController;
+use App\Http\Controllers\Api\OperationalNotificationController;
 use App\Http\Controllers\Api\SupervisorNotificationController;
 use App\Http\Controllers\Api\TransitController;
 use Illuminate\Support\Facades\Route;
@@ -28,6 +29,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/delivery-orders/{delivery_order}/inbound/finish', [InboundScanController::class, 'finish']);
 
             Route::post('/anomalies/{anomaly}/evidences', [AnomalyEvidenceController::class, 'store']);
+
+            Route::get('/notifications', [OperationalNotificationController::class, 'index']);
+            Route::patch('/notifications/{notification}/read', [OperationalNotificationController::class, 'markAsRead']);
 
             Route::get('/transits', [TransitController::class, 'index']);
             Route::get('/transits/{transit}', [TransitController::class, 'show']);

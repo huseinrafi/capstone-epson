@@ -7,6 +7,7 @@ use App\Http\Requests\StoreInboundScanRequest;
 use App\Models\Anomaly;
 use App\Models\DeliveryOrder;
 use App\Models\DoItemBox;
+use App\Services\AnomalyNotificationService;
 use App\Services\InboundReconciliationService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -19,7 +20,7 @@ class InboundScanController extends Controller
 
     public function start(DeliveryOrder $deliveryOrder): JsonResponse
     {
-        if (! $deliveryOrder->isPending()) {
+        if (!$deliveryOrder->isPending()) {
             return $this->badRequestResponse('Manifest tidak dalam status PENDING');
         }
 
@@ -83,7 +84,7 @@ class InboundScanController extends Controller
             foreach ($missingItems as $item) {
                 $item->update(['final_status' => 'MISSING']);
 
-                $this->createInboundAnomaly(
+                $anomaly = $this->createInboundAnomaly(
                     $deliveryOrder,
                     Anomaly::DISCREPANCY_MISSING,
                     $item->sku,
@@ -91,6 +92,8 @@ class InboundScanController extends Controller
                     $item->scanned_qty,
                     $request->user('api')->id
                 );
+
+                app(AnomalyNotificationService::class)->notifySupervisorsForNewAnomaly($anomaly);
             }
 
             $status = $missingItems->isEmpty()
