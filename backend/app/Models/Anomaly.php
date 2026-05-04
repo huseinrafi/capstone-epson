@@ -13,6 +13,7 @@ class Anomaly extends Model
     use HasUuids;
 
     public const TYPE_INBOUND_DISCREPANCY = 'INBOUND_DISCREPANCY';
+    public const TYPE_TRANSIT_DISCREPANCY = 'TRANSIT_DISCREPANCY';
 
     public const STATUS_PENDING_REVIEW = 'PENDING_REVIEW';
 
