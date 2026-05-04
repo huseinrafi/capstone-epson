@@ -3,12 +3,16 @@
 use App\Http\Controllers\Api\AnomalyEvidenceController;
 use App\Http\Controllers\Api\AnomalyReviewController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DashboardAnalyticsController;
 use App\Http\Controllers\Api\DeliveryOrderController;
 use App\Http\Controllers\Api\InboundScanController;
 use App\Http\Controllers\Api\ItemController;
+use App\Http\Controllers\Api\LookupController;
 use App\Http\Controllers\Api\OperationalNotificationController;
 use App\Http\Controllers\Api\SupervisorNotificationController;
 use App\Http\Controllers\Api\TransitController;
+use App\Http\Controllers\Api\VendorController;
+use App\Http\Controllers\Api\WarehouseController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -20,6 +24,11 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
 
         Route::middleware('role:operator_checker,admin_gudang,supervisor,manajer')->group(function () {
+            Route::get('/lookups/vendors', [LookupController::class, 'vendors']);
+            Route::get('/lookups/warehouses', [LookupController::class, 'warehouses']);
+            Route::get('/lookups/skus', [LookupController::class, 'skus']);
+            Route::get('/lookups/anomaly-options', [LookupController::class, 'anomalyOptions']);
+
             Route::get('/items/barcode/{barcode}', [ItemController::class, 'showByBarcode']);
             Route::get('/delivery-orders/queue', [DeliveryOrderController::class, 'queue']);
             Route::get('/delivery-orders/{delivery_order}', [DeliveryOrderController::class, 'show']);
@@ -45,6 +54,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/delivery-orders', [DeliveryOrderController::class, 'index']);
             Route::post('/delivery-orders', [DeliveryOrderController::class, 'store']);
             Route::apiResource('/items', ItemController::class);
+            Route::apiResource('/vendors', VendorController::class);
+            Route::apiResource('/warehouses', WarehouseController::class);
 
             Route::post('/transits', [TransitController::class, 'store']);
         });
@@ -60,6 +71,12 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/supervisor-notifications', [SupervisorNotificationController::class, 'index']);
             Route::patch('/supervisor-notifications/{notification}/read', [SupervisorNotificationController::class, 'markAsRead']);
+        });
+
+        Route::middleware('role:supervisor,manajer')->group(function () {
+            Route::get('/dashboard/overview', [DashboardAnalyticsController::class, 'overview']);
+            Route::get('/dashboard/anomalies/drilldown', [DashboardAnalyticsController::class, 'anomalyDrilldown']);
+            Route::get('/dashboard/transactions/drilldown', [DashboardAnalyticsController::class, 'transactionDrilldown']);
         });
     });
 });
