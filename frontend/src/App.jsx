@@ -1,17 +1,34 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import BarcodeGenerator from './components/BarcodeGenerator';
-import BarcodeScanner from './components/BarcodeScanner';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Login from './components/Login';
+import Register from './components/Register';
+import Forbidden from './components/Forbidden';
+import DashboardLayout from './components/layouts/DashboardLayout';
+import Dashboard from './components/Dashboard';
+import Manifests from './components/Manifests';
+import Anomalies from './components/Anomalies';
+import Analytics from './components/Analytics';
+import UserManagement from './components/UserManagement';
 
 function App() {
   return (
-    <div className="app-container">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<BarcodeGenerator />} />
-          <Route path="/scan" element={<BarcodeScanner />} />
-        </Routes>
-      </BrowserRouter>
-    </div>
+    <Router>
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/403" element={<Forbidden />} />
+
+        {/* Protected Routes*/}
+        <Route element={<DashboardLayout />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/manifests" element={<Manifests />} />
+          <Route path="/anomalies" element={<Anomalies />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/users" element={<UserManagement />} />
+        </Route>
+      </Routes>
+    </Router>
   );
 }
 
