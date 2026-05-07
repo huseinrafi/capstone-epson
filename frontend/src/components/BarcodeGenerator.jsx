@@ -12,7 +12,7 @@ function BarcodeGenerator() {
 
     const handleGenerate = (e) => {
         e.preventDefault();
-        if(!name.trim()) {
+        if (!name.trim()) {
             setStatus({ type: 'error', message: 'Silahkan isi produk/barcode' });
             return;
         }
@@ -24,20 +24,21 @@ function BarcodeGenerator() {
         if (!barcodeData) return;
         setIsPrinting(true);
         setStatus(null);
-        
+
         try {
             const apiUrl = window.location.protocol + '//' + window.location.hostname + ':5001/api/print';
-            const res = await axios.post(apiUrl, { 
+            const res = await axios.post(apiUrl, {
                 barcode: barcodeData,
-                name: "Scanned Item" 
+                name: "Scanned Item"
             });
-            
-            if(res.data.success) {
+
+            if (res.data.success) {
                 setStatus({ type: 'success', message: '✔ Printer Berhasil Mencetak!' });
             } else {
                 setStatus({ type: 'error', message: res.data.error || 'Gagal tersambung ke printer.' });
             }
         } catch (error) {
+            console.error('Print Error:', error);
             setStatus({ type: 'error', message: 'Server Print Offline atau Terjadi Kesalahan.' });
         } finally {
             setIsPrinting(false);
@@ -61,7 +62,7 @@ function BarcodeGenerator() {
                     onChange={(e) => setName(e.target.value)}
                     autoComplete="off"
                 />
-                <button type="submit" className="btn btn-secondary" style={{marginTop: '0.5rem'}}>
+                <button type="submit" className="btn btn-secondary" style={{ marginTop: '0.5rem' }}>
                     Lihat Barcode
                 </button>
             </form>
@@ -69,18 +70,18 @@ function BarcodeGenerator() {
             {barcodeData && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div className="barcode-preview">
-                        <Barcode 
-                            value={barcodeData} 
-                            background="transparent" 
-                            lineColor="#000000" 
-                            width={2} 
-                            height={60} 
+                        <Barcode
+                            value={barcodeData}
+                            background="transparent"
+                            lineColor="#000000"
+                            width={2}
+                            height={60}
                             displayValue={true}
                         />
                     </div>
-                    
-                    <button 
-                        onClick={handlePrint} 
+
+                    <button
+                        onClick={handlePrint}
                         className="btn btn-primary"
                         disabled={isPrinting}
                     >
@@ -100,7 +101,7 @@ function BarcodeGenerator() {
             )}
 
             <div className="nav-links">
-                <a onClick={() => navigate('/scan')} className="nav-link" style={{cursor:'pointer'}}>
+                <a onClick={() => navigate('/scan')} className="nav-link" style={{ cursor: 'pointer' }}>
                     📷 Buka Kamera Scanner →
                 </a>
             </div>

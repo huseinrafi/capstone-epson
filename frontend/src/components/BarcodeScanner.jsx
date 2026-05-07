@@ -33,10 +33,10 @@ function BarcodeScanner() {
                         html5QrCode.current.stop().catch(console.error);
                     }
                 },
-                (errorMessage) => {
+                () => {
                     // ignore normal frame scan errors (e.g. no barcode found in frame yet)
                 }
-            ).catch(err => {
+            ).catch(() => {
                 if(!isComponentUnmounted) {
                     setError('Gagal mengakses kamera. Pastikan memberikan izin.');
                 }
@@ -67,6 +67,7 @@ function BarcodeScanner() {
                 alert('Silahkan cek printer. ' + (res.data.error || ''));
             }
         } catch (error) {
+            console.error("Print API Error:", error);
             alert('Gagal tersambung ke Server Print API.');
         } finally {
             setIsPrinting(false);
