@@ -23,16 +23,25 @@ export default function Login() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
+      const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || 'Login gagal. Periksa kredensial Anda.');
+        throw new Error(result.message || 'Login gagal. Periksa kredensial Anda.');
       }
 
-      localStorage.setItem('token', data.data.access_token);
-      localStorage.setItem('role', data.data.user.role);
+      if (response.ok && result.success) {
+        localStorage.setItem('token', result.data.access_token);
+        localStorage.setItem('user', JSON.stringify(result.data.user));
 
-      navigate('/dashboard');
+        const userRole = result.data.user.role;
+        localStorage.setItem('role', userRole);
+
+        if (userRole === 'operator_checker' || userRole === 'operator') {
+          navigate('/inbound');
+        } else {
+          navigate('/dashboard');
+        }
+      }
     } catch (err) {
       setError(err.message);
     } finally {

@@ -8,6 +8,8 @@ import Manifests from './components/Manifests';
 import Anomalies from './components/Anomalies';
 import Analytics from './components/Analytics';
 import UserManagement from './components/UserManagement';
+import BarcodeScanner from './components/BarcodeScanner';
+import ManifestQueue from "./components/ManifestQueue";
 
 function App() {
   return (
@@ -18,6 +20,10 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/403" element={<Forbidden />} />
+
+        {/* Mobile Operator*/}
+        <Route path="/inbound" element={<ManifestQueue />} />
+        <Route path="/scanner/:id" element={<BarcodeScanner />} />
 
         {/* Protected Routes*/}
         <Route element={<DashboardLayout />}>
