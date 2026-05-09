@@ -1,79 +1,84 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 
 export default function ManifestQueue() {
     const navigate = useNavigate();
+    const location = useLocation(); // ✅ FIX 2: deteksi kembali ke halaman ini
     const [queue, setQueue] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Mengambil nama user dari localStorage jika ada
     const userStr = localStorage.getItem('user');
     const userName = userStr ? JSON.parse(userStr).name : 'Operator';
 
-    useEffect(() => {
-        fetchQueueData();
-    }, []);
-
-    const fetchQueueData = async () => {
+    // ✅ FIX 2: useCallback agar bisa dipanggil dari useEffect manapun
+    const fetchQueueData = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
         try {
             const token = localStorage.getItem('token');
             const response = await fetch(`${import.meta.env.VITE_API_URL}/delivery-orders/queue`, {
-                method: 'GET',
                 headers: {
                     'Accept': 'application/json',
                     'Authorization': `Bearer ${token}`
                 }
             });
-
             const result = await response.json();
-
             if (response.ok && result.success) {
-                // Respons Postman menggunakan paginasi (result.data.data)
                 setQueue(result.data.data);
             } else {
                 setError(result.message || 'Gagal mengambil data antrian');
             }
         } catch (err) {
-            console.error("Fetch Error:", err);
+            console.err(err);
             setError('Koneksi ke server gagal.');
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []);
 
-    // Logika untuk menghitung ringkasan status
-    const pendingCount = queue.filter(item => item.status === 'PENDING').length;
-    const activeCount = queue.filter(item => item.status === 'IN_PROGRESS' || item.status === 'HOLD_INBOUND').length;
+    // ✅ FIX 2: fetch ulang setiap kali location berubah (kembali dari scanner)
+    useEffect(() => {
+        fetchQueueData();
+    }, [location.key, fetchQueueData]);
+
+    const pendingCount = queue.filter(i => i.status === 'PENDING').length;
+    const activeCount = queue.filter(i => i.status === 'IN_PROGRESS' || i.status === 'HOLD_INBOUND').length;
 
     const handleStartScan = async (doId, currentStatus) => {
-        // Jika DO sudah berjalan (IN_PROGRESS/HOLD_INBOUND), langsung buka kamera
         if (currentStatus !== 'PENDING') {
             navigate(`/scanner/${doId}`);
             return;
         }
-
-        // Jika masih PENDING, tembak API Start terlebih dahulu
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`${import.meta.env.VITE_API_URL}/delivery-orders/${doId}/inbound/start`, {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'Authorization': `Bearer ${token}`
+            const response = await fetch(
+                `${import.meta.env.VITE_API_URL}/delivery-orders/${doId}/inbound/start`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
                 }
-            });
-
+            );
             const result = await response.json();
-
             if (response.ok && result.success) {
-                // Jika backend merespons sukses, baru pindah ke layar kamera
+                // ✅ FIX 3: simpan items (SKU map) ke sessionStorage untuk dipakai scanner
+                const itemsMap = {};
+                (result.data.items || []).forEach(item => {
+                    // key: vendor_barcode → value: sku
+                    if (item.vendor_barcode) {
+                        itemsMap[item.vendor_barcode.toUpperCase()] = item.sku;
+                    }
+                });
+                sessionStorage.setItem(`do_items_${doId}`, JSON.stringify(itemsMap));
                 navigate(`/scanner/${doId}`);
             } else {
                 alert(result.message || 'Gagal memulai sesi scan di server.');
             }
         } catch (err) {
-            console.error("Start Scan Error:", err);
+            console.error(err);
             alert('Koneksi ke server gagal.');
         }
     };
