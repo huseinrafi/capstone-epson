@@ -147,7 +147,6 @@ export default function BarcodeScanner() {
             });
           }
         } else {
-          // Anomaly — tampilkan pesan dari API
           setScanMessage(result.message || 'Anomali terdeteksi');
         }
 
