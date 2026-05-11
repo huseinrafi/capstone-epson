@@ -103,26 +103,17 @@ export default function BarcodeScanner() {
     };
   }, [deliveryOrderId]);
 
-  const ensureItemsMap = async (doData) => {
-    const storageKey = `do_items_${deliveryOrderId}`;
-    const items = doData.items || [];
-    if (items.length > 0) {
-      const map = {};
-      items.forEach(item => {
-        if (item.vendor_barcode) {
-          map[item.vendor_barcode.trim().toUpperCase()] = item.sku;
-        }
-      });
-      sessionStorage.setItem(storageKey, JSON.stringify(map));
-    }
+  // itemsMap tidak lagi digunakan untuk lookup SKU di frontend.
+  // SKU diresolved oleh backend berdasarkan vendor_barcode.
+  // Fungsi ini dipertahankan hanya untuk kompatibilitas.
+  const ensureItemsMap = async () => {
+    // Tidak ada aksi — backend yang handle lookup
   };
 
   // ─── TAHAP 2: PROSES BARCODE KE API ──────────────────────────────────────
   const processBarcode = useCallback(async (barcodeText) => {
     try {
       const token = localStorage.getItem('token');
-      const itemsMap = JSON.parse(sessionStorage.getItem(`do_items_${deliveryOrderId}`) || '{}');
-      const sku = itemsMap[barcodeText] || null;
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/delivery-orders/${deliveryOrderId}/inbound/scans`, {
         method: 'POST',
@@ -134,7 +125,7 @@ export default function BarcodeScanner() {
         body: JSON.stringify({
           barcode: barcodeText,
           device_id: 'mobile-operator-01',
-          ...(sku && { sku })
+          // SKU tidak dikirim dari frontend — backend resolve sendiri dari vendor_barcode
         })
       });
 
@@ -146,15 +137,24 @@ export default function BarcodeScanner() {
         const currentProgress = result.data.item_progress;
 
         setScanStatus(status);
-        setScanMessage(label);
-        setProgress({
-          scanned: currentProgress.scanned_qty,
-          expected: currentProgress.expected_qty
-        });
+
+        if (status === 'MATCH') {
+          setScanMessage(label);
+          if (currentProgress) {
+            setProgress({
+              scanned: currentProgress.scanned_qty,
+              expected: currentProgress.expected_qty
+            });
+          }
+        } else {
+          // Anomaly — tampilkan pesan dari API
+          setScanMessage(result.message || 'Anomali terdeteksi');
+        }
+
         setRecentScans(prev => [{ barcode: barcodeText, label, status }, ...prev].slice(0, 3));
       } else {
-        setScanStatus('MISMATCH');
-        setScanMessage(result.message || 'Teks tidak dikenali oleh sistem');
+        setScanStatus('NOT_FOUND');
+        setScanMessage(result.message || 'Barcode tidak dikenali oleh sistem');
       }
     } catch (err) {
       console.error(err)
@@ -326,7 +326,7 @@ export default function BarcodeScanner() {
             </div>
           </div>
         )}
-        {(scanStatus === 'MISMATCH' || scanStatus === 'UNEXPECTED' || scanStatus === 'ERROR') && (
+        {(scanStatus === 'MISMATCH' || scanStatus === 'UNEXPECTED' || scanStatus === 'ERROR' || scanStatus === 'NOT_FOUND' || scanStatus === 'OVER') && (
           <div className="bg-white border border-[#DC3545] p-3 flex items-center gap-4 shadow-sm">
             <div className="w-12 h-12 rounded-full border-2 border-[#DC3545] flex items-center justify-center text-[#DC3545] shrink-0">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

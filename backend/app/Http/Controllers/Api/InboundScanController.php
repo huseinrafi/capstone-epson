@@ -40,7 +40,12 @@ class InboundScanController extends Controller
         DeliveryOrder $deliveryOrder,
         InboundReconciliationService $service
     ): JsonResponse {
-        if ($deliveryOrder->status !== DeliveryOrder::STATUS_IN_PROGRESS) {
+        $allowedStatuses = [
+            DeliveryOrder::STATUS_IN_PROGRESS,
+            DeliveryOrder::STATUS_HOLD_INBOUND,
+        ];
+
+        if (!in_array($deliveryOrder->status, $allowedStatuses)) {
             return $this->badRequestResponse('Manifest tidak sedang dalam proses scan.');
         }
 
@@ -61,7 +66,12 @@ class InboundScanController extends Controller
 
     public function finish(Request $request, DeliveryOrder $deliveryOrder): JsonResponse
     {
-        if ($deliveryOrder->status !== DeliveryOrder::STATUS_IN_PROGRESS) {
+        $allowedStatuses = [
+            DeliveryOrder::STATUS_IN_PROGRESS,
+            DeliveryOrder::STATUS_HOLD_INBOUND,
+        ];
+
+        if (!in_array($deliveryOrder->status, $allowedStatuses)) {
             return $this->badRequestResponse('Manifest tidak sedang dalam proses scan.');
         }
 

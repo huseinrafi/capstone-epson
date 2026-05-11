@@ -19,14 +19,16 @@ class InboundReconciliationService
         return DB::transaction(function () use ($deliveryOrder, $payload, $operator) {
             $barcode = $payload['barcode'];
 
-            $box = DoItemBox::query()
-                ->with('doItem')
+            // Cari do_item berdasarkan vendor_barcode yang disimpan di do_items.
+            // Barcode yang di-scan dari fisik kotak adalah vendor_barcode (tanpa suffix).
+            // Suffix (-A, -B, dst) hanya untuk membedakan kotak individu di do_item_boxes.
+            $item = DoItem::query()
                 ->where('delivery_order_id', $deliveryOrder->id)
-                ->where('barcode', $barcode)
+                ->where('vendor_barcode', $barcode)
                 ->lockForUpdate()
                 ->first();
 
-            if (!$box) {
+            if (!$item) {
                 $scan = $this->recordScan($deliveryOrder, null, $operator, $payload, ScanResult::STATUS_NOT_FOUND);
 
                 $anomaly = $this->recordAnomaly(
@@ -42,28 +44,16 @@ class InboundReconciliationService
                 return $this->anomalyResult($scan, $anomaly, ScanResult::STATUS_NOT_FOUND, 'Barcode tidak ditemukan di manifest aktif.');
             }
 
-            $item = DoItem::query()
-                ->whereKey($box->do_item_id)
+            // Cek apakah masih ada slot kotak yang belum di-scan untuk item ini
+            $box = DoItemBox::query()
+                ->where('delivery_order_id', $deliveryOrder->id)
+                ->where('do_item_id', $item->id)
+                ->where('status', DoItemBox::STATUS_PENDING)
                 ->lockForUpdate()
-                ->firstOrFail();
+                ->first();
 
-            if (($payload['sku'] ?? null) && $payload['sku'] !== $item->sku) {
-                $scan = $this->recordScan($deliveryOrder, $item, $operator, $payload, ScanResult::STATUS_MISMATCH);
-
-                $anomaly = $this->recordAnomaly(
-                    $deliveryOrder,
-                    $scan,
-                    Anomaly::DISCREPANCY_MISMATCH,
-                    $item->sku,
-                    $item->expected_qty,
-                    $item->scanned_qty,
-                    $operator
-                );
-
-                return $this->anomalyResult($scan, $anomaly, ScanResult::STATUS_MISMATCH, 'Jenis part tidak sesuai expected data.');
-            }
-
-            if ($box->status === DoItemBox::STATUS_SCANNED) {
+            if (!$box) {
+                // Tidak ada slot tersisa → OVER
                 $scan = $this->recordScan($deliveryOrder, $item, $operator, $payload, ScanResult::STATUS_OVER);
 
                 $anomaly = $this->recordAnomaly(
