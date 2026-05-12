@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\LookupController;
 use App\Http\Controllers\Api\OperationalNotificationController;
 use App\Http\Controllers\Api\SupervisorNotificationController;
 use App\Http\Controllers\Api\TransitController;
+use App\Http\Controllers\Api\UserManagementController;
 use App\Http\Controllers\Api\VendorController;
 use App\Http\Controllers\Api\WarehouseController;
 use Illuminate\Support\Facades\Route;
@@ -77,6 +78,15 @@ Route::prefix('v1')->group(function () {
             Route::get('/dashboard/overview', [DashboardAnalyticsController::class, 'overview']);
             Route::get('/dashboard/anomalies/drilldown', [DashboardAnalyticsController::class, 'anomalyDrilldown']);
             Route::get('/dashboard/transactions/drilldown', [DashboardAnalyticsController::class, 'transactionDrilldown']);
+
+            Route::get('/lookups/roles', [LookupController::class, 'roles']);
+            Route::get('/user-management/users', [UserManagementController::class, 'index']);
+            Route::get('/user-management/users/{user}', [UserManagementController::class, 'show']);
+            Route::post('/user-management/users', [UserManagementController::class, 'store']);
+            Route::put('/user-management/users/{user}', [UserManagementController::class, 'update']);
+            Route::patch('/user-management/users/{user}', [UserManagementController::class, 'update']);
+            Route::patch('/user-management/users/{user}/password', [UserManagementController::class, 'resetPassword']);
+            Route::delete('/user-management/users/{user}', [UserManagementController::class, 'destroy']);
         });
     });
 });
