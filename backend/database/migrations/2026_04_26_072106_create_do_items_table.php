@@ -19,7 +19,7 @@ return new class extends Migration
             $table->string('vendor_barcode', 100);
             $table->unsignedInteger('expected_qty')->default(0);
             $table->unsignedInteger('scanned_qty')->default(0);
-            $table->enum('final_status', ['MATCH', 'MISMATCH', 'MISSING', 'OVER']);
+            $table->enum('final_status', ['MATCH', 'MISMATCH', 'MISSING', 'OVER'])->nullable();
             $table->timestamps();
         });
     }
