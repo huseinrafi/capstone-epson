@@ -10,6 +10,7 @@ import Analytics from './components/Analytics';
 import UserManagement from './components/UserManagement';
 import BarcodeScanner from './components/BarcodeScanner';
 import ManifestQueue from "./components/ManifestQueue";
+import ManifestCompleted from "./components/ManifestCompleted";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
         {/* Mobile Operator*/}
         <Route path="/inbound" element={<ManifestQueue />} />
         <Route path="/scanner/:id" element={<BarcodeScanner />} />
+        <Route path="/manifests-completed/:id" element={<ManifestCompleted />} />
 
         {/* Protected Routes*/}
         <Route element={<DashboardLayout />}>

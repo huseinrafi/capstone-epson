@@ -31,7 +31,12 @@ class DeliveryOrderController extends Controller
     {
         $orders = DeliveryOrder::query()
             ->with(['vendor', 'warehouse'])
-            ->where('status', DeliveryOrder::STATUS_PENDING)
+            ->whereIn('status', [
+                DeliveryOrder::STATUS_IN_PROGRESS,
+                DeliveryOrder::STATUS_HOLD_INBOUND,
+                DeliveryOrder::STATUS_PENDING,
+            ])
+            ->orderByRaw("CASE status WHEN 'IN_PROGRESS' THEN 1 WHEN 'HOLD_INBOUND' THEN 2 WHEN 'PENDING' THEN 3 ELSE 4 END")
             ->oldest()
             ->paginate($request->integer('per_page', 15));
 
