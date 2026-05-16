@@ -11,6 +11,9 @@ import UserManagement from './components/UserManagement';
 import BarcodeScanner from './components/BarcodeScanner';
 import ManifestQueue from "./components/ManifestQueue";
 import ManifestCompleted from "./components/ManifestCompleted";
+import TransitScanner from "./components/TransitScanner";
+import CaptureEvidence from "./components/CaptureEvidence";
+import WaitingApproval from "./components/WaitingApproval";
 
 function App() {
   return (
@@ -24,8 +27,12 @@ function App() {
 
         {/* Mobile Operator*/}
         <Route path="/inbound" element={<ManifestQueue />} />
+        <Route path="/transit" element={<TransitScanner />} />
         <Route path="/scanner/:id" element={<BarcodeScanner />} />
         <Route path="/manifests-completed/:id" element={<ManifestCompleted />} />
+        <Route path="/capture-evidence/:doId" element={<CaptureEvidence />} />
+        <Route path="/waiting-approval/:doId" element={<WaitingApproval />} />
+
 
         {/* Protected Routes*/}
         <Route element={<DashboardLayout />}>
