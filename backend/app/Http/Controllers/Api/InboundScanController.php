@@ -7,6 +7,7 @@ use App\Http\Requests\StoreInboundScanRequest;
 use App\Models\Anomaly;
 use App\Models\DeliveryOrder;
 use App\Models\DoItemBox;
+use App\Models\ScanResult;
 use App\Services\AnomalyNotificationService;
 use App\Services\InboundReconciliationService;
 use App\Traits\ApiResponse;
@@ -148,4 +149,48 @@ class InboundScanController extends Controller
             'reported_by' => $reportedBy,
         ]);
     }
+
+    public function scanResults(Request $request, DeliveryOrder $deliveryOrder): JsonResponse
+    {
+        $results = ScanResult::query()
+            ->with(['operator:id,name', 'doItem:id,sku,part_name,vendor_barcode'])
+            ->where('delivery_order_id', $deliveryOrder->id)
+            ->when($request->status, fn($q, $s) => $q->where('result_status', $s))
+            ->when($request->search, function ($q, $search) {
+                $q->where(function ($inner) use ($search) {
+                    $inner->where('scanned_barcode', 'ilike', "%{$search}%")
+                          ->orWhereHas('operator', fn($u) => $u->where('name', 'ilike', "%{$search}%"));
+                });
+            })
+            ->orderBy('scanned_at', 'desc')
+            ->paginate($request->integer('per_page', 15));
+
+        // Tambahkan MISSING dari boxes yang tidak di-scan
+        $missingBoxes = \App\Models\DoItemBox::query()
+            ->with(['doItem:id,sku,part_name,vendor_barcode'])
+            ->where('delivery_order_id', $deliveryOrder->id)
+            ->where('status', \App\Models\DoItemBox::STATUS_MISSING)
+            ->get()
+            ->map(fn($box) => [
+                'id' => 'missing_' . $box->id,
+                'scanned_barcode' => $box->barcode,
+                'result_status' => 'MISSING',
+                'scanned_at' => null,
+                'operator' => null,
+                'device_id' => null,
+                'doItem' => $box->doItem,
+            ]);
+
+        return $this->successResponse([
+            'scan_results' => $results,
+            'missing_items' => $missingBoxes,
+            'summary' => [
+                'total_scanned' => $deliveryOrder->scanned_total,
+                'total_expected' => $deliveryOrder->expected_total,
+                'do_number' => $deliveryOrder->do_number,
+                'status' => $deliveryOrder->status,
+            ]
+        ], 'Scan results berhasil diambil.');
+    }
+
 }
