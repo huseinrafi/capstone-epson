@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate, useParams } from 'react-router-dom';
 
-// Kunci sessionStorage untuk recent scans per DO
 const scanStorageKey = (doId) => `recent_scans_${doId}`;
 
 export default function BarcodeScanner() {
@@ -20,29 +19,23 @@ export default function BarcodeScanner() {
   const [showExitPopup, setShowExitPopup] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
 
-  // Recent scans: load dari sessionStorage saat mount
   const [recentScans, setRecentScans] = useState(() => {
     try {
       const saved = sessionStorage.getItem(scanStorageKey(id));
       return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   });
 
   const html5QrCode = useRef(null);
   const scanLock = useRef(false);
 
-  // Simpan recent scans ke sessionStorage setiap kali berubah
   useEffect(() => {
     try {
       sessionStorage.setItem(scanStorageKey(deliveryOrderId), JSON.stringify(recentScans));
-    } catch (e) {
-      console.error('sessionStorage error:', e);
-    }
+    } catch (e) { console.error(e); }
   }, [recentScans, deliveryOrderId]);
 
-  // ─── VALIDASI & SINKRONISASI DO ───────────────────────────────────────────
+  // ─── INIT DO ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!deliveryOrderId) { setDoError('Delivery Order ID tidak valid.'); return; }
     let isMounted = true;
@@ -63,8 +56,14 @@ export default function BarcodeScanner() {
           setDoNumber(doData.do_number || deliveryOrderId);
           setProgress({ scanned: doData.scanned_total ?? 0, expected: doData.expected_total ?? 0 });
         }
-
         if (doData.status === 'IN_PROGRESS' || doData.status === 'HOLD_INBOUND') {
+          if (doData.status === 'HOLD_INBOUND') {
+            const hasPendingAnomaly = doData.anomalies?.some(a => a.status === 'PENDING_REVIEW');
+            if (hasPendingAnomaly) {
+              navigate(`/waiting-approval/${deliveryOrderId}`, { replace: true, state: { doNumber: doData.do_number } });
+              return;
+            }
+          }
           if (isMounted) setDoReady(true);
         } else if (doData.status === 'PENDING') {
           const startRes = await fetch(
@@ -94,8 +93,15 @@ export default function BarcodeScanner() {
   }, [deliveryOrderId]);
 
   // ─── PROSES BARCODE ───────────────────────────────────────────────────────
-  // Barcode yang dikirim adalah box barcode dengan suffix: VB-001-A, VB-001-B, dst.
-  // Backend match dari do_item_boxes.barcode.
+  const stopCamera = useCallback(() => {
+    if (html5QrCode.current) {
+      try {
+        html5QrCode.current.stop().then(() => html5QrCode.current.clear()).catch(() => {});
+      } catch (e) { console.error(e); }
+      html5QrCode.current = null;
+    }
+  }, []);
+
   const processBarcode = useCallback(async (barcodeText) => {
     try {
       const token = localStorage.getItem('token');
@@ -103,15 +109,10 @@ export default function BarcodeScanner() {
         `${import.meta.env.VITE_API_URL}/delivery-orders/${deliveryOrderId}/inbound/scans`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ barcode: barcodeText, device_id: 'mobile-operator-01' })
         }
       );
-
       const result = await response.json();
 
       if (response.ok && result.success) {
@@ -123,63 +124,86 @@ export default function BarcodeScanner() {
 
         if (status === 'MATCH') {
           const partName = payload?.part_name || barcodeText;
-          // SN di recent scans = box_barcode (VB-001-A) bukan internal_barcode
-          // karena internal_barcode tidak dikembalikan di API ini
           const boxBarcode = payload?.box_barcode || barcodeText;
           const sku = payload?.sku || '';
 
           setScanMessage(partName);
-
           if (currentProgress) {
-            setProgress({
-              scanned: currentProgress.scanned_qty,
-              expected: currentProgress.expected_qty
-            });
+            setProgress({ scanned: currentProgress.scanned_qty, expected: currentProgress.expected_qty });
           }
-
           setRecentScans(prev => [{
-            partName,
-            sku,
-            sn: boxBarcode,   // tampil sebagai SN: VB-001-A
-            status: 'MATCH',
+            partName, sku, sn: boxBarcode, status: 'MATCH',
             time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           }, ...prev].slice(0, 10));
+
+          // MATCH: buka kunci setelah 2 detik
+          setTimeout(() => {
+            setScanStatus(null);
+            scanLock.current = false;
+            try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
+          }, 2000);
 
         } else {
-          // Anomali: NOT_FOUND, OVER, MISMATCH
-          setScanMessage(result.message || 'Anomali terdeteksi');
+          // ANOMALI (NOT_FOUND, OVER, MISMATCH) → BLOK kamera, arahkan ke CaptureEvidence
+          const anomalyData = result.data.anomaly;
+          const evidenceUrl = result.data.evidence_upload_url;
+
           setRecentScans(prev => [{
-            partName: barcodeText,
-            sku: '',
-            sn: '',
-            status,
+            partName: barcodeText, sku: '', sn: '', status,
             time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           }, ...prev].slice(0, 10));
+
+          // Tampilkan error singkat lalu navigate ke CaptureEvidence
+          setScanMessage(result.message || 'Anomali terdeteksi');
+          setTimeout(() => {
+            stopCamera();
+            navigate(`/capture-evidence/${deliveryOrderId}`, {
+              state: {
+                anomalyId: anomalyData?.id,
+                anomalyType: status,
+                doNumber: doNumber,
+                scannedBarcode: barcodeText,
+                affectedSku: anomalyData?.affected_sku,
+                expectedQty: anomalyData?.expected_qty,
+                actualQty: anomalyData?.actual_qty,
+                evidenceUploadUrl: evidenceUrl,
+                // Data untuk tampilan Expected vs Scanned (dari label_payload jika MISMATCH)
+                expectedItem: payload ? {
+                  sku: payload.sku,
+                  partName: payload.part_name,
+                } : null,
+              }
+            });
+          }, 1500);
         }
       } else {
-        setScanStatus('NOT_FOUND');
-        const errMsg = result.message || 'Barcode tidak dikenali oleh sistem';
-        setScanMessage(errMsg);
+        // HTTP error / success: false → juga anomali
+        const status = 'NOT_FOUND';
+        setScanStatus(status);
+        setScanMessage(result.message || 'Barcode tidak dikenali oleh sistem');
+
         setRecentScans(prev => [{
-          partName: barcodeText,
-          sku: '',
-          sn: '',
-          status: 'NOT_FOUND',
+          partName: barcodeText, sku: '', sn: '', status,
           time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
         }, ...prev].slice(0, 10));
+
+        setTimeout(() => {
+          setScanStatus(null);
+          scanLock.current = false;
+          try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
+        }, 2000);
       }
     } catch (err) {
       console.error(err);
       setScanStatus('ERROR');
       setScanMessage('Koneksi server gagal');
-    } finally {
       setTimeout(() => {
         setScanStatus(null);
         scanLock.current = false;
         try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
       }, 2000);
     }
-  }, [deliveryOrderId]);
+  }, [deliveryOrderId, doNumber, navigate, stopCamera]);
 
   // ─── KAMERA ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -198,24 +222,20 @@ export default function BarcodeScanner() {
             try { html5QrCode.current?.isScanning && html5QrCode.current.pause(true); } catch (e) { console.error(e); }
             await processBarcode(decodedText.trim().toUpperCase());
           },
-          () => { }
+          () => {}
         );
-      } catch (err) {
-        console.error('Kamera gagal:', err);
-      }
+      } catch (err) { console.error('Kamera gagal:', err); }
     };
 
     const timer = setTimeout(startCamera, 300);
     return () => {
       isMounted = false;
       clearTimeout(timer);
-      if (html5QrCode.current) {
-        try { html5QrCode.current.stop().then(() => html5QrCode.current.clear()).catch(() => { }); } catch (e) { console.error(e); }
-      }
+      stopCamera();
     };
-  }, [doReady, processBarcode]);
+  }, [doReady, processBarcode, stopCamera]);
 
-  // ─── FINISH SCAN ──────────────────────────────────────────────────────────
+  // ─── FINISH ───────────────────────────────────────────────────────────────
   const handleFinishConfirm = async () => {
     setIsFinishing(true);
     try {
@@ -226,8 +246,8 @@ export default function BarcodeScanner() {
       );
       const result = await response.json();
       if (response.ok && result.success) {
-        // Clear recent scans setelah selesai (manifest sudah final)
         sessionStorage.removeItem(scanStorageKey(deliveryOrderId));
+        stopCamera();
         navigate(`/manifest-completed/${deliveryOrderId}`, {
           state: {
             doNumber: result.data.manifest?.do_number || doNumber,
@@ -247,15 +267,12 @@ export default function BarcodeScanner() {
       console.error(err);
       alert('Koneksi server gagal.');
       setShowFinishPopup(false);
-    } finally {
-      setIsFinishing(false);
-    }
+    } finally { setIsFinishing(false); }
   };
 
   // ─── RENDER ───────────────────────────────────────────────────────────────
   const progressPercent = progress.expected > 0
-    ? Math.min((progress.scanned / progress.expected) * 100, 100)
-    : 0;
+    ? Math.min((progress.scanned / progress.expected) * 100, 100) : 0;
 
   if (doError) {
     return (
@@ -280,7 +297,6 @@ export default function BarcodeScanner() {
 
   return (
     <div className="flex flex-col min-h-[100dvh] bg-[#F8F9FA] font-sans">
-
       {/* HEADER */}
       <header className="flex items-center justify-between p-4 bg-white border-b border-gray-200">
         <button onClick={() => setShowExitPopup(true)} className="text-gray-600">
@@ -349,7 +365,7 @@ export default function BarcodeScanner() {
             </div>
           </div>
         )}
-        {['MISMATCH', 'NOT_FOUND', 'OVER', 'UNEXPECTED', 'ERROR'].includes(scanStatus) && (
+        {['MISMATCH','NOT_FOUND','OVER','UNEXPECTED','ERROR'].includes(scanStatus) && (
           <div className="bg-white border-2 border-[#DC3545] p-3 flex items-center gap-4 shadow-sm">
             <div className="w-12 h-12 rounded-full border-2 border-[#DC3545] flex items-center justify-center text-[#DC3545] shrink-0">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -357,14 +373,14 @@ export default function BarcodeScanner() {
               </svg>
             </div>
             <div className="overflow-hidden">
-              <p className="text-[#DC3545] font-bold text-xs tracking-wider">{scanStatus}</p>
+              <p className="text-[#DC3545] font-bold text-xs tracking-wider">{scanStatus} — Mengarahkan ke bukti...</p>
               <p className="text-red-900 font-semibold text-sm leading-tight break-words">{scanMessage}</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* RECENT SCANS — persistent via sessionStorage */}
+      {/* RECENT SCANS */}
       <div className="flex-1 px-4 mt-3 overflow-y-auto pb-24">
         <h3 className="text-[10px] text-gray-500 font-bold tracking-wider mb-2">
           RECENT SCANS {recentScans.length > 0 && <span className="text-[#002060]">({recentScans.length})</span>}
@@ -376,14 +392,10 @@ export default function BarcodeScanner() {
             <div key={index} className="bg-white p-3 border border-gray-200 flex items-center gap-3 shadow-sm mb-2">
               <div className={`shrink-0 ${scan.status === 'MATCH' ? 'text-[#002060]' : 'text-[#DC3545]'}`}>
                 <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="2" y="4" width="2" height="16" />
-                  <rect x="5" y="4" width="1" height="16" />
-                  <rect x="7" y="4" width="2" height="16" />
-                  <rect x="10" y="4" width="1" height="16" />
-                  <rect x="12" y="4" width="3" height="16" />
-                  <rect x="16" y="4" width="1" height="16" />
-                  <rect x="18" y="4" width="2" height="16" />
-                  <rect x="21" y="4" width="1" height="16" />
+                  <rect x="2" y="4" width="2" height="16"/><rect x="5" y="4" width="1" height="16"/>
+                  <rect x="7" y="4" width="2" height="16"/><rect x="10" y="4" width="1" height="16"/>
+                  <rect x="12" y="4" width="3" height="16"/><rect x="16" y="4" width="1" height="16"/>
+                  <rect x="18" y="4" width="2" height="16"/><rect x="21" y="4" width="1" height="16"/>
                 </svg>
               </div>
               <div className="flex-1 min-w-0">
@@ -403,10 +415,8 @@ export default function BarcodeScanner() {
 
       {/* FINISH BUTTON */}
       <div className="fixed bottom-0 w-full p-4 bg-white border-t border-gray-200 z-50">
-        <button
-          onClick={() => setShowFinishPopup(true)}
-          className="w-full bg-[#002060] text-white py-3 font-semibold flex justify-center items-center gap-2 hover:bg-blue-900 transition-colors"
-        >
+        <button onClick={() => setShowFinishPopup(true)}
+          className="w-full bg-[#002060] text-white py-3 font-semibold flex justify-center items-center gap-2 hover:bg-blue-900 transition-colors">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
@@ -414,9 +424,9 @@ export default function BarcodeScanner() {
         </button>
       </div>
 
-      {/* ── POPUP: FINISH SCAN ────────────────────────────────────────────── */}
+      {/* POPUP: FINISH */}
       {showFinishPopup && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-end justify-center">
           <div className="bg-white w-full max-w-md shadow-2xl">
             <div className="px-6 pt-6 pb-3 flex items-center gap-3 border-b border-gray-100">
               <div className="w-8 h-8 bg-red-100 rounded flex items-center justify-center shrink-0">
@@ -432,17 +442,12 @@ export default function BarcodeScanner() {
               </p>
             </div>
             <div className="px-6 pb-8 flex flex-col gap-3">
-              <button
-                onClick={handleFinishConfirm}
-                disabled={isFinishing}
-                className="w-full bg-[#002060] text-white py-4 font-bold tracking-widest text-sm hover:bg-blue-900 transition-colors disabled:opacity-60"
-              >
+              <button onClick={handleFinishConfirm} disabled={isFinishing}
+                className="w-full bg-[#002060] text-white py-4 font-bold tracking-widest text-sm hover:bg-blue-900 transition-colors disabled:opacity-60">
                 {isFinishing ? 'MEMPROSES...' : 'YES, FINISH SCAN'}
               </button>
-              <button
-                onClick={() => setShowFinishPopup(false)}
-                className="w-full bg-white border border-gray-300 text-gray-700 py-3 font-bold tracking-widest text-sm hover:bg-gray-50 transition-colors"
-              >
+              <button onClick={() => setShowFinishPopup(false)}
+                className="w-full bg-white border border-gray-300 text-gray-700 py-3 font-bold tracking-widest text-sm hover:bg-gray-50 transition-colors">
                 CANCEL
               </button>
             </div>
@@ -450,9 +455,9 @@ export default function BarcodeScanner() {
         </div>
       )}
 
-      {/* ── POPUP: EXIT ───────────────────────────────────────────────────── */}
+      {/* POPUP: EXIT */}
       {showExitPopup && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-end justify-center">
           <div className="bg-white w-full max-w-md shadow-2xl">
             <div className="px-6 pt-6 pb-3 flex items-center gap-3 border-b border-gray-100">
               <div className="w-8 h-8 bg-red-100 rounded flex items-center justify-center shrink-0">
@@ -465,8 +470,7 @@ export default function BarcodeScanner() {
             <div className="px-6 py-5">
               <div className="border border-dashed border-red-300 bg-red-50 rounded p-4 mb-4">
                 <p className="text-gray-800 text-sm leading-relaxed">
-                  Scan is not complete{' '}
-                  <span className="font-bold text-[#002060]">({progress.scanned}/{progress.expected})</span>.
+                  Scan is not complete <span className="font-bold text-[#002060]">({progress.scanned}/{progress.expected})</span>.
                   {' '}Progress tersimpan otomatis — lanjutkan kapan saja dari halaman antrian.
                 </p>
               </div>
@@ -480,25 +484,19 @@ export default function BarcodeScanner() {
               </div>
             </div>
             <div className="px-6 pb-8 flex flex-col gap-3">
-              <button
-                onClick={() => setShowExitPopup(false)}
-                className="w-full bg-[#002060] text-white py-4 font-bold tracking-widest text-sm flex justify-center items-center gap-2 hover:bg-blue-900 transition-colors"
-              >
+              <button onClick={() => setShowExitPopup(false)}
+                className="w-full bg-[#002060] text-white py-4 font-bold tracking-widest text-sm flex justify-center items-center gap-2 hover:bg-blue-900 transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
                 </svg>
                 STAY AND SCAN
               </button>
-              <button
-                onClick={() => navigate('/inbound')}
-                className="w-full bg-white border-2 border-[#002060] text-[#002060] py-3 font-bold tracking-widest text-sm hover:bg-blue-50 transition-colors"
-              >
+              <button onClick={() => { stopCamera(); navigate('/inbound'); }}
+                className="w-full bg-white border-2 border-[#002060] text-[#002060] py-3 font-bold tracking-widest text-sm hover:bg-blue-50 transition-colors">
                 EXIT
               </button>
             </div>
-            <p className="text-center text-[10px] text-gray-400 pb-4 tracking-wider">
-              EPSON SVSB • PROGRESS TERSIMPAN OTOMATIS
-            </p>
+            <p className="text-center text-[10px] text-gray-400 pb-4 tracking-wider">EPSON SVSB • PROGRESS TERSIMPAN OTOMATIS</p>
           </div>
         </div>
       )}
