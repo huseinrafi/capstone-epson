@@ -77,6 +77,7 @@ class InboundScanController extends Controller
         }
 
         return DB::transaction(function () use ($deliveryOrder, $request) {
+            // 1. Ambil kotak yang tidak pernah di-scan oleh operator
             $missingBoxes = DoItemBox::query()
                 ->where('delivery_order_id', $deliveryOrder->id)
                 ->where('status', DoItemBox::STATUS_PENDING)
@@ -87,45 +88,55 @@ class InboundScanController extends Controller
                 $box->update(['status' => DoItemBox::STATUS_MISSING]);
             }
 
+            // 2. Cari item yang jumlah scanaktualnya kurang dari ekspektasi DO
             $missingItems = $deliveryOrder->items()
                 ->whereColumn('scanned_qty', '<', 'expected_qty')
                 ->lockForUpdate()
                 ->get();
 
-            foreach ($missingItems as $item) {
-                $item->update(['final_status' => 'MISSING']);
-
+            if ($missingItems->isNotEmpty()) {
+                // Buat satu entri anomali utama untuk mewakili kasus part kurang ini
+                $firstMissing = $missingItems->first();
+                
                 $anomaly = $this->createInboundAnomaly(
                     $deliveryOrder,
                     Anomaly::DISCREPANCY_MISSING,
-                    $item->sku,
-                    $item->expected_qty,
-                    $item->scanned_qty,
+                    $firstMissing->sku,
+                    $firstMissing->expected_qty,
+                    $firstMissing->scanned_qty,
                     $request->user('api')->id
                 );
 
+                $deliveryOrder->update([
+                    'status' => DeliveryOrder::STATUS_HOLD_INBOUND,
+                    'completed_at' => now(),
+                ]);
+
                 app(AnomalyNotificationService::class)->notifySupervisorsForNewAnomaly($anomaly);
+
+                // Kirimkan sinyal intervensi kembar agar frontend tahu ada penahanan dokumen
+                return $this->successResponse([
+                    'requires_evidence' => true,
+                    'anomaly_status' => 'MISSING',
+                    'anomaly' => $anomaly,
+                    'expected_item' => [
+                        'sku' => $firstMissing->sku,
+                        'partName' => $firstMissing->part_name
+                    ],
+                    'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences"
+                ], 'Sesi di-HOLD. Ditemukan part kuantitas kurang (MISSING). Wajib upload foto bukti fisik.');
             }
 
-            $status = $missingItems->isEmpty()
-                ? DeliveryOrder::STATUS_COMPLETED
-                : DeliveryOrder::STATUS_HOLD_INBOUND;
-
+            // Kondisi Ideal: Semua MATCH
             $deliveryOrder->update([
-                'status' => $status,
+                'status' => DeliveryOrder::STATUS_COMPLETED,
                 'completed_at' => now(),
             ]);
 
-            return $this->successResponse(
-                [
-                    'manifest' => $deliveryOrder->fresh(['items.boxes']),
-                    'missing_item_count' => $missingItems->count(),
-                    'missing_box_count' => $missingBoxes->count(),
-                ],
-                $missingItems->isEmpty()
-                ? 'Scan inbound selesai normal.'
-                : 'Scan inbound selesai dengan item MISSING. Manifest masuk HOLD_INBOUND.'
-            );
+            return $this->successResponse([
+                'requires_evidence' => false,
+                'manifest' => $deliveryOrder->fresh(['items.boxes'])
+            ], 'Scan inbound selesai normal.');
         });
     }
 

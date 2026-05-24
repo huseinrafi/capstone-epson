@@ -9,10 +9,9 @@ export default function CaptureEvidence() {
 
   const {
     anomalyId,
-    anomalyType,       // NOT_FOUND | MISMATCH | OVER
+    anomalyType,       // NOT_FOUND | MISMATCH | OVER | MISSING
     doNumber,
     scannedBarcode,
-    expectedItem,      // { sku, partName } — bisa null jika NOT_FOUND
     evidenceUploadUrl,
   } = state;
 
@@ -118,8 +117,7 @@ export default function CaptureEvidence() {
       formData.append('notes', notes || 'Bukti anomali dari operator.');
       formData.append('device_id', 'mobile-operator-01');
 
-      // URL: /api/v1/anomalies/{anomalyId}/evidences
-      const baseUrl = import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, ''); // get http://...:8000
+      const baseUrl = import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, ''); 
       const url = evidenceUploadUrl
         ? `${baseUrl}${evidenceUploadUrl}`
         : `${import.meta.env.VITE_API_URL}/anomalies/${anomalyId}/evidences`;
@@ -133,7 +131,6 @@ export default function CaptureEvidence() {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        // Langsung ke waiting approval screen karena DO masih HOLD_INBOUND
         navigate(`/waiting-approval/${doId}`, { replace: true, state: { doNumber } });
       } else {
         alert(result.message || 'Gagal mengunggah bukti.');
@@ -148,13 +145,22 @@ export default function CaptureEvidence() {
     }
   };
 
-  // ─── HELPER ───────────────────────────────────────────────────────────────
+  // ─── HELPER MAPPING BANNER (SESUAI GAMBAR BARU MISMATH & MISSING) ─────────
   const getAnomalyLabel = () => {
+    if (anomalyType === 'MISSING') {
+      return { 
+        title: 'MISSING PART DETECTED', 
+        sub: 'Quantity does not match manifest entry.' 
+      };
+    }
     switch (anomalyType) {
-      case 'MISMATCH': return { title: 'MISMATCH DETECTED', sub: 'Hardware scan does not match manifest entry.' };
-      case 'OVER':     return { title: 'OVER QUANTITY', sub: 'Item scanned melebihi expected quantity.' };
+      case 'MISMATCH': 
+        return { title: 'MISMATCH DETECTED', sub: 'Hardware scan does not match manifest entry.' };
+      case 'OVER':     
+        return { title: 'OVER QUANTITY', sub: 'Item scanned melebihi expected quantity.' };
       case 'NOT_FOUND':
-      default:         return { title: 'BARCODE NOT FOUND', sub: 'Barcode tidak ditemukan dalam manifest aktif.' };
+      default:         
+        return { title: 'MISMATCH DETECTED', sub: 'Barcode does not match manifest entry.' };
     }
   };
 
@@ -181,7 +187,7 @@ export default function CaptureEvidence() {
         <h2 className="text-lg font-bold text-gray-900">Capture Evidence</h2>
       </div>
 
-      {/* ── ANOMALY BANNER ─────────────────────────────────────────────────── */}
+      {/* ── ANOMALY BANNER (DINAMIS SESUAI GAMBAR) ─────────────────────────── */}
       <div className="mx-4 mb-3 bg-[#C0392B] text-white px-4 py-4 flex items-start gap-3">
         <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0 mt-0.5">
           <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -189,57 +195,43 @@ export default function CaptureEvidence() {
           </svg>
         </div>
         <div>
-          <p className="font-black text-sm tracking-wider">{anomalyLabel.title}</p>
+          <p className="font-black text-sm tracking-wider uppercase">{anomalyLabel.title}</p>
           <p className="text-red-100 text-xs mt-0.5">{anomalyLabel.sub}</p>
         </div>
       </div>
 
-      {/* ── EXPECTED vs SCANNED (hanya jika MISMATCH / OVER) ──────────────── */}
-      {(anomalyType === 'MISMATCH') && (
-        <div className="mx-4 mb-3 flex flex-col gap-2">
-          {/* Expected */}
-          <div className="bg-white border border-gray-200 px-4 py-3">
-            <div className="flex items-center gap-2 mb-1">
-              <svg className="w-4 h-4 text-[#002060]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+      {/* ── SCANNED INPUT CARD (BLOK EXPECTED BERHASIL DICABUT SESUAI FIGMA BARU) ── */}
+      <div className="mx-4 mb-3">
+        <div className="bg-[#FFF0F0] border-2 border-[#C0392B] px-4 py-3 relative">
+          <span className="absolute top-2 right-2 text-[10px] font-black text-[#C0392B] tracking-wider bg-red-100 px-2 py-0.5">
+            ACTUAL
+          </span>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-[#C0392B]">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="2" y="4" width="2" height="16"/><rect x="5" y="4" width="1" height="16"/>
+                <rect x="7" y="4" width="2" height="16"/><rect x="10" y="4" width="1" height="16"/>
+                <rect x="12" y="4" width="3" height="16"/>
               </svg>
-              <p className="text-[10px] font-bold text-gray-500 tracking-wider">EXPECTED ITEM</p>
             </div>
-            <p className="text-[#002060] font-black text-base">
-              SKU: {expectedItem?.sku || '—'}
-            </p>
-            <p className="text-gray-700 text-sm">{expectedItem?.partName || '—'}</p>
+            <p className="text-[10px] font-bold text-[#C0392B] tracking-wider">SCANNED INPUT</p>
           </div>
-
-          {/* Scanned (Actual) */}
-          <div className="bg-[#FFF0F0] border-2 border-[#C0392B] px-4 py-3 relative">
-            <span className="absolute top-2 right-2 text-[10px] font-black text-[#C0392B] tracking-wider bg-red-100 px-2 py-0.5">ACTUAL</span>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="text-[#C0392B]">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="2" y="4" width="2" height="16"/><rect x="5" y="4" width="1" height="16"/>
-                  <rect x="7" y="4" width="2" height="16"/><rect x="10" y="4" width="1" height="16"/>
-                  <rect x="12" y="4" width="3" height="16"/>
-                </svg>
-              </div>
-              <p className="text-[10px] font-bold text-[#C0392B] tracking-wider">SCANNED INPUT</p>
-            </div>
-            <p className="text-[#C0392B] font-black text-base">
-              {scannedBarcode || '—'}
-            </p>
-            <p className="text-gray-600 text-sm">Barcode tidak sesuai expected data</p>
-          </div>
+          <p className="text-[#C0392B] font-black text-base break-all">
+            {scannedBarcode || '—'}
+          </p>
+          <p className="text-gray-600 text-xs mt-0.5">
+            {anomalyType === 'MISSING' ? 'Kuantitas total item dalam manifes belum terpenuhi.' : 'Barcode tidak sesuai dengan data ekspektasi manifes.'}
+          </p>
         </div>
-      )}
+      </div>
 
-      {/* ── EVIDENCE CAPTURE ───────────────────────────────────────────────── */}
+      {/* ── EVIDENCE CAPTURE AREA ──────────────────────────────────────────── */}
       <div className="mx-4 mb-3">
         <div className="flex justify-between items-center mb-2">
           <h3 className="font-black text-gray-900 tracking-wider text-sm">EVIDENCE CAPTURE</h3>
           <span className="text-[10px] text-gray-500 font-bold tracking-wider">STEP 2 OF 3</span>
         </div>
 
-        {/* Kamera / Preview */}
         <div className="bg-black w-full aspect-video relative overflow-hidden">
           {cameraError ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-4 text-center">
@@ -262,7 +254,6 @@ export default function CaptureEvidence() {
           <canvas ref={canvasRef} className="hidden" />
         </div>
 
-        {/* Tombol Foto */}
         <div className="flex gap-2 mt-2">
           {!capturedPhoto ? (
             <button onClick={takePhoto}
@@ -367,7 +358,6 @@ export default function CaptureEvidence() {
       {showSubmitPopup && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-end justify-center">
           <div className="bg-white w-full max-w-md shadow-2xl">
-            {/* Header biru gelap */}
             <div className="bg-[#002060] px-5 py-4 flex items-center gap-3">
               <svg className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -375,14 +365,12 @@ export default function CaptureEvidence() {
               <h2 className="text-white font-black text-lg">Submit Evidence?</h2>
             </div>
 
-            {/* Body */}
             <div className="px-5 py-5">
               <p className="text-gray-700 text-sm leading-relaxed mb-4">
                 This will <span className="font-black text-[#C0392B] underline">lock</span> the discrepancy
                 report for <span className="text-[#002060] font-bold">{doNumber}</span>. This action cannot be undone.
               </p>
 
-              {/* Summary info */}
               <div className="bg-[#F0F4FF] border-l-4 border-[#002060] px-4 py-3 flex flex-col gap-1.5">
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] font-bold text-gray-500 tracking-wider">FILES ATTACHED</span>
@@ -397,7 +385,6 @@ export default function CaptureEvidence() {
               </div>
             </div>
 
-            {/* Actions */}
             <div className="px-5 pb-8 flex flex-col gap-3">
               <button
                 onClick={handleSubmitConfirm}

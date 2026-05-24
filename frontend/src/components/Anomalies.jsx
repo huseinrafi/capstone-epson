@@ -83,12 +83,6 @@ function Sidebar({ onLogout }) {
       </nav>
 
       <div className="border-t border-gray-200 p-3 flex flex-col gap-1">
-        <button className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 flex items-center gap-3 rounded-md w-full text-left">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
-          </svg>
-          Support
-        </button>
         <button
           onClick={onLogout}
           className="px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 flex items-center gap-3 rounded-md w-full text-left font-medium"

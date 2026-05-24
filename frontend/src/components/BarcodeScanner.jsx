@@ -245,20 +245,40 @@ export default function BarcodeScanner() {
         { method: 'POST', headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` } }
       );
       const result = await response.json();
+      
       if (response.ok && result.success) {
+        // Hapus data cache pemicu scan lokal
         sessionStorage.removeItem(scanStorageKey(deliveryOrderId));
-        stopCamera();
-        navigate(`/manifest-completed/${deliveryOrderId}`, {
-          state: {
-            doNumber: result.data.manifest?.do_number || doNumber,
-            scanned: result.data.manifest?.scanned_total ?? progress.scanned,
-            expected: result.data.manifest?.expected_total ?? progress.expected,
-            missingCount: result.data.missing_count ?? 0,
-            startedAt: result.data.manifest?.started_at,
-            completedAt: result.data.manifest?.completed_at,
-            operatorId: result.data.manifest?.admin_user_id,
-          }
-        });
+
+        if (result.data.requires_evidence) {
+          // Jika backend mendeteksi item kurang, paksa kemudi rute ke halaman CaptureEvidence
+          // Manfaatkan state terstruktur yang sudah dikenali oleh komponen CaptureEvidence Anda
+          navigate(`/capture-evidence/${deliveryOrderId}`, {
+            state: {
+              anomalyId: result.data.anomaly?.id,
+              anomalyType: 'MISSING', // Menggunakan banner merah penanda discrepancy
+              doNumber: doNumber,
+              scannedBarcode: 'PART QUANTITY MISSING',
+              affectedSku: result.data.anomaly?.affected_sku,
+              expectedQty: result.data.anomaly?.expected_qty,
+              actualQty: result.data.anomaly?.actual_qty,
+              evidenceUploadUrl: result.data.evidence_upload_url,
+              expectedItem: result.data.expected_item,
+            }
+          });
+        } else {
+          // Kasus Normal / Bersih: Arahkan ke rute sukses (Perhatikan kecocokan nama rute '/manifests-completed/')
+          navigate(`/manifests-completed/${deliveryOrderId}`, {
+            state: {
+              doNumber: result.data.manifest?.do_number || doNumber,
+              scanned: result.data.manifest?.scanned_total ?? progress.scanned,
+              expected: result.data.manifest?.expected_total ?? progress.expected,
+              missingCount: 0,
+              startedAt: result.data.manifest?.started_at,
+              completedAt: result.data.manifest?.completed_at,
+            }
+          });
+        }
       } else {
         alert(result.message || 'Gagal menyelesaikan sesi scan.');
         setShowFinishPopup(false);
@@ -267,7 +287,9 @@ export default function BarcodeScanner() {
       console.error(err);
       alert('Koneksi server gagal.');
       setShowFinishPopup(false);
-    } finally { setIsFinishing(false); }
+    } finally {
+      setIsFinishing(false);
+    }
   };
 
   // ─── RENDER ───────────────────────────────────────────────────────────────
