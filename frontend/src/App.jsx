@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './components/Login';
 import Register from './components/Register';
 import Forbidden from './components/Forbidden';
-import DashboardLayout from './components/layouts/DashboardLayout';
+import DashboardLayout from './components/Layouts/DashboardLayout';
 import Dashboard from './components/Dashboard';
 import Manifests from './components/Manifests';
 import Anomalies from './components/Anomalies';
@@ -32,13 +32,12 @@ function App() {
         <Route path="/manifests-completed/:id" element={<ManifestCompleted />} />
         <Route path="/capture-evidence/:doId" element={<CaptureEvidence />} />
         <Route path="/waiting-approval/:doId" element={<WaitingApproval />} />
-
+        <Route path="/anomalies" element={<Anomalies />} />
 
         {/* Protected Routes*/}
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/manifests" element={<Manifests />} />
-          <Route path="/anomalies" element={<Anomalies />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/users" element={<UserManagement />} />
         </Route>

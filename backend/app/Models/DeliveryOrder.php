@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\ScanResult;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -68,6 +69,11 @@ class DeliveryOrder extends Model
     public function boxes(): HasMany
     {
         return $this->hasMany(DoItemBox::class);
+    }
+
+    public function scanResults(): HasMany
+    {
+        return $this->hasMany(ScanResult::class);
     }
 
     public function anomalies(): HasMany

@@ -86,8 +86,7 @@ export default function DashboardLayout() {
         </header>
 
         {/* DYNAMIC CONTENT AREA */}
-        <main className="flex-1 pt-16 pb-20 md:pb-6 p-4 md:p-8 overflow-y-auto">
-          {/* Komponen halaman spesifik akan dirender di sini */}
+        <main className="flex-1 pt-16 flex flex-col overflow-hidden">
           <Outlet />
         </main>
       </div>

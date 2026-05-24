@@ -1,6 +1,6 @@
 export default function Dashboard() {
   return (
-    <div className="w-full">
+    <div className="w-full p-6 overflow-y-auto">
       <h2 className="text-xl font-bold text-[#002060] mb-4">Hi, Aris Setiawan!</h2>
       <p className="text-sm text-gray-600 mb-6">Station ID: INBOUND-1 | Role: Operator</p>
       
