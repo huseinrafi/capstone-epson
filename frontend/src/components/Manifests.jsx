@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const STATUS_STYLE = {
@@ -419,29 +419,81 @@ export default function Manifests() {
   const role = localStorage.getItem('role') || '';
   const canCreate = CAN_CREATE.includes(role);
 
-  // ── KPI counts ──────────────────────────────────────────────────────────────
-  const pendingCount    = manifests.filter(m => m.status === 'PENDING').length;
-  const inProgressCount = manifests.filter(m => m.status === 'IN_PROGRESS').length;
-  const completedToday  = manifests.filter(m => {
-    if (m.status !== 'COMPLETED' || !m.completed_at) return false;
-    const today = new Date().toDateString();
-    return new Date(m.completed_at).toDateString() === today;
-  }).length;
+  // ── KPI state — diambil langsung dari DB, terpisah dari tabel ──────────────
+  const [kpi, setKpi] = useState({
+    pendingCount: 0,
+    inProgressCount: 0,
+    completedToday: 0,
+    matchRate: 0,
+    avgTime: '—',
+  });
 
-  const matchRate = manifests.length > 0
-    ? Math.round((manifests.filter(m => m.status === 'COMPLETED').length / manifests.length) * 100)
-    : 0;
+  // ── Fetch KPI — request paralel per status langsung dari DB ─────────────────
+  const fetchKpi = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` };
 
-  const avgTime = (() => {
-    const done = manifests.filter(m => m.status === 'IN_PROGRESS' && m.started_at);
-    if (!done.length) return '—';
-    const avg = done.reduce((sum, m) => {
-      return sum + (Date.now() - new Date(m.started_at)) / 1000 / 60;
-    }, 0) / done.length;
-    return `${Math.round(avg)}m`;
-  })();
+      // PENDING VERIFICATION = PENDING + HOLD_INBOUND (perlu tindakan)
+      const [pendingRes, holdRes, inProgressRes, completedRes] = await Promise.all([
+        fetch(`${import.meta.env.VITE_API_URL}/delivery-orders?status=PENDING&per_page=1`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL}/delivery-orders?status=HOLD_INBOUND&per_page=1`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL}/delivery-orders?status=IN_PROGRESS&per_page=100`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL}/delivery-orders?status=COMPLETED&per_page=100`, { headers }),
+      ]);
 
-  // ── Fetch ────────────────────────────────────────────────────────────────────
+      const [pendingData, holdData, inProgressData, completedData] = await Promise.all([
+        pendingRes.json(),
+        holdRes.json(),
+        inProgressRes.json(),
+        completedRes.json(),
+      ]);
+
+      // Pending Verification = PENDING + HOLD_INBOUND (keduanya butuh perhatian)
+      const pendingOnly = pendingData.success
+        ? (pendingData.data?.total ?? pendingData.data?.data?.length ?? 0)
+        : 0;
+      const holdOnly = holdData.success
+        ? (holdData.data?.total ?? holdData.data?.data?.length ?? 0)
+        : 0;
+      const pendingCount = pendingOnly + holdOnly;
+
+      // In Progress — hitung avg time dari started_at
+      const inProgressItems = inProgressData.success ? (inProgressData.data?.data || []) : [];
+      const inProgressCount = inProgressData.success
+        ? (inProgressData.data?.total ?? inProgressItems.length)
+        : 0;
+
+      const avgTime = (() => {
+        const withStart = inProgressItems.filter(m => m.started_at);
+        if (!withStart.length) return '—';
+        const avg = withStart.reduce((sum, m) =>
+          sum + (Date.now() - new Date(m.started_at)) / 1000 / 60, 0
+        ) / withStart.length;
+        return `${Math.round(avg)}m`;
+      })();
+
+      // Completed — filter yang hari ini
+      const completedItems = completedData.success ? (completedData.data?.data || []) : [];
+      const todayStr = new Date().toDateString();
+      const completedToday = completedItems.filter(m => {
+        if (!m.completed_at) return false;
+        return new Date(m.completed_at).toDateString() === todayStr;
+      }).length;
+
+      // Match rate = completed / (completed + hold + returned) * 100
+      const totalCompleted = completedData.success ? (completedData.data?.total ?? completedItems.length) : 0;
+      const matchRate = totalCompleted > 0
+        ? Math.min(100, Math.round((completedItems.filter(m => m.status === 'COMPLETED').length / completedItems.length) * 100))
+        : 0;
+
+      setKpi({ pendingCount, inProgressCount, completedToday, matchRate, avgTime });
+    } catch (err) {
+      console.error('KPI fetch error:', err);
+    }
+  }, []);
+
+  // ── Fetch tabel manifest ───────────────────────────────────────────────────
   const fetchManifests = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -457,7 +509,11 @@ export default function Manifests() {
     finally { setIsLoading(false); }
   }, [filterStatus]);
 
-  useEffect(() => { fetchManifests(); }, [fetchManifests]);
+  // Fetch keduanya saat mount dan setiap filter berubah
+  useEffect(() => {
+    fetchKpi();
+    fetchManifests();
+  }, [fetchKpi, fetchManifests]);
 
   // ── Delete ───────────────────────────────────────────────────────────────────
   const handleDelete = async () => {
@@ -472,6 +528,7 @@ export default function Manifests() {
       const result = await res.json();
       if (res.ok && result.success) {
         setDeleteTarget(null);
+        fetchKpi();
         fetchManifests();
       } else {
         alert(result.message || 'Gagal menghapus manifest.');
@@ -498,24 +555,20 @@ export default function Manifests() {
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#F8F9FA] font-sans">
 
-      {/* 1. SIDEBAR WAJIB DI-RENDER SEJAJAR DENGAN KONTEN VIEW UTAMA */}
       <Sidebar onLogout={() => {
         localStorage.removeItem('token');
         localStorage.removeItem('role');
         window.location.href = '/login';
       }} />
 
-      {/* 2. CONTAINER KONTEN (Adopsi 100% Struktur Layout Anomalies) */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
-        {/* ── UNIFIED DESKTOP TOPBAR ── */}
+        {/* ── TOPBAR ── */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
           <div className="shrink-0">
             <h1 className="font-bold text-gray-900 text-sm">Manifests Control</h1>
             <p className="text-[11px] text-gray-500">Manage inbound deliveries and vendor drops.</p>
           </div>
-
-          {/* Search bar diletakkan di topbar untuk konsistensi UI */}
           <div className="flex-1 max-w-xs flex items-center border border-gray-300 bg-white px-3 gap-2">
             <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -527,7 +580,6 @@ export default function Manifests() {
               className="flex-1 py-2 text-sm outline-none bg-transparent"
             />
           </div>
-
           <div className="flex items-center gap-2 shrink-0">
             <button className="flex items-center gap-2 border border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 bg-white">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -549,127 +601,155 @@ export default function Manifests() {
           </div>
         </header>
 
-        {/* ── WORKSPACE CONTENT BODY (Dapat Di-scroll jika data penuh) ── */}
         <div className="flex-1 overflow-y-auto p-6 bg-[#F8F9FA]">
-          
-          {/* ── KPI CARDS ── */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">PENDING VERIFICATION</p>
-                <p className="text-4xl font-bold text-gray-900">{pendingCount}</p>
-                {pendingCount > 0 && (
-                  <p className="text-xs text-[#C0392B] font-bold mt-1">↑ {pendingCount} high priority</p>
-                )}
-              </div>
-              <div className="text-gray-300">
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                </svg>
-              </div>
-            </div>
+        <div className="max-w-full">
 
-            <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">IN PROGRESS DROPS</p>
-                <p className="text-4xl font-bold text-gray-900">{inProgressCount}</p>
-                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                  Avg time: {avgTime}
-                </p>
-              </div>
-              <div className="text-gray-300">
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </div>
+        {/* ── KPI CARDS ─────────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {/* Pending */}
+          <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
+            <div>
+              <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">PENDING VERIFICATION</p>
+              <p className="text-4xl font-bold text-gray-900">{kpi.pendingCount}</p>
+              {kpi.pendingCount > 0 && (
+                <p className="text-xs text-[#C0392B] font-bold mt-1">↑ {kpi.pendingCount} high priority</p>
+              )}
             </div>
-
-            <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
-              <div>
-                <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">COMPLETED TODAY</p>
-                <p className="text-4xl font-bold text-gray-900">{completedToday}</p>
-                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                  {matchRate}% match rate
-                </p>
-              </div>
-              <div className="text-gray-300">
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
+            <div className="text-gray-300">
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
             </div>
           </div>
 
-          {/* ── DATA MANIFEST TABLE ── */}
-          <div className="bg-white border border-gray-200">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="font-bold text-gray-900 text-sm">Active Delivery Orders</h2>
+          {/* In Progress */}
+          <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
+            <div>
+              <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">IN PROGRESS DROPS</p>
+              <p className="text-4xl font-bold text-gray-900">{kpi.inProgressCount}</p>
+              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Avg time: {kpi.avgTime}
+              </p>
             </div>
-
-            <div className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-2.5 bg-gray-50 border-b border-gray-100">
-              <div />
-              <span className="text-[10px] font-bold text-gray-500 tracking-widest pl-3">DO NUMBER</span>
-              <span className="text-[10px] font-bold text-gray-500 tracking-widest">VENDOR</span>
-              <span className="text-[10px] font-bold text-gray-500 tracking-widest">STATUS</span>
-              <span className="text-[10px] font-bold text-gray-500 tracking-widest">ARRIVAL DATE/TIME</span>
-              <span className="text-[10px] font-bold text-gray-500 tracking-widest text-right">ACTIONS</span>
+            <div className="text-gray-300">
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
             </div>
+          </div>
 
-            {isLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <div className="w-8 h-8 border-4 border-[#002060] border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="text-center py-16 text-gray-400 text-sm">Tidak ada manifest ditemukan.</div>
-            ) : (
-              filtered.map(m => {
-                const st = STATUS_STYLE[m.status] || STATUS_STYLE.PENDING;
-                const canDelete = m.status === 'PENDING' && canCreate;
-                return (
-                  <div key={m.id} className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-3.5 border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                    <div className={`self-stretch w-1 rounded-full ${getLeftBarColor(m.status)}`} />
-                    <span className="font-bold text-gray-900 text-sm pl-3">{m.do_number}</span>
-                    <span className="text-sm text-gray-700">{m.vendor?.name || '—'}</span>
-                    <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 w-fit ${st.cls}`}>
-                      {m.status === 'HOLD_INBOUND' && '⚠️ '}
-                      {m.status === 'IN_PROGRESS' && '↺ '}
-                      {m.status === 'COMPLETED' && '✓ '}
-                      {st.label}
-                    </span>
-                    <span className="text-sm text-gray-600">{fmtDate(m.created_at)}</span>
-                    <div className="flex items-center justify-end gap-2">
-                      {canDelete && (
-                        <button
-                          onClick={() => setDeleteTarget(m)}
-                          className="text-gray-400 hover:text-red-500 transition-colors p-1"
-                          title="Cancel manifest"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      )}
-                      <button className="text-gray-400 hover:text-[#002060] transition-colors p-1" title="View detail">
+          {/* Completed Today */}
+          <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
+            <div>
+              <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">COMPLETED TODAY</p>
+              <p className="text-4xl font-bold text-gray-900">{kpi.completedToday}</p>
+              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {kpi.matchRate}% match rate
+              </p>
+            </div>
+            <div className="text-gray-300">
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* ── TABLE ────────────────────────────────────────────────────────── */}
+        <div className="bg-white border border-gray-200">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <h2 className="font-bold text-gray-900 text-sm">Active Delivery Orders</h2>
+            <button className="text-gray-400 hover:text-gray-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Table header */}
+          <div className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+            <div />
+            <span className="text-[10px] font-bold text-gray-500 tracking-widest pl-3">DO NUMBER</span>
+            <span className="text-[10px] font-bold text-gray-500 tracking-widest">VENDOR</span>
+            <span className="text-[10px] font-bold text-gray-500 tracking-widest">STATUS</span>
+            <span className="text-[10px] font-bold text-gray-500 tracking-widest">ARRIVAL DATE/TIME</span>
+            <span className="text-[10px] font-bold text-gray-500 tracking-widest text-right">ACTIONS</span>
+          </div>
+
+          {/* Rows */}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-8 h-8 border-4 border-[#002060] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-16 text-gray-400 text-sm">Tidak ada manifest ditemukan.</div>
+          ) : (
+            filtered.map(m => {
+              const st = STATUS_STYLE[m.status] || STATUS_STYLE.PENDING;
+              const canDelete = m.status === 'PENDING' && canCreate;
+              return (
+                <div key={m.id} className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-3.5 border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                  {/* Color indicator */}
+                  <div className={`self-stretch w-1 rounded-full ${getLeftBarColor(m.status)}`} />
+
+                  {/* DO Number */}
+                  <span className="font-bold text-gray-900 text-sm pl-3">{m.do_number}</span>
+
+                  {/* Vendor */}
+                  <span className="text-sm text-gray-700">{m.vendor?.name || '—'}</span>
+
+                  {/* Status */}
+                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 w-fit ${st.cls}`}>
+                    {m.status === 'HOLD_INBOUND' && '⚠ '}
+                    {m.status === 'IN_PROGRESS' && '↺ '}
+                    {m.status === 'COMPLETED' && '✓ '}
+                    {st.label}
+                  </span>
+
+                  {/* Date */}
+                  <span className="text-sm text-gray-600">{fmtDate(m.created_at)}</span>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-end gap-2">
+                    {canDelete && (
+                      <button
+                        onClick={() => setDeleteTarget(m)}
+                        className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                        title="Cancel manifest"
+                      >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
                       </button>
-                    </div>
+                    )}
+                    <button className="text-gray-400 hover:text-[#002060] transition-colors p-1" title="View detail">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    </button>
                   </div>
-                );
-              })
-            )}
-          </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
 
         </div>
       </div>
 
-      {/* MODALS COMPONENTS OVERLAY */}
+      {/* MODALS */}
       {showCreate && (
         <CreateManifestModal
           onClose={() => setShowCreate(false)}
-          onSuccess={() => { setShowCreate(false); fetchManifests(); }}
+          onSuccess={() => { setShowCreate(false); fetchKpi(); fetchManifests(); }}
         />
       )}
       {deleteTarget && (
