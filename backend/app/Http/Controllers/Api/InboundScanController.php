@@ -7,6 +7,7 @@ use App\Http\Requests\StoreInboundScanRequest;
 use App\Models\Anomaly;
 use App\Models\DeliveryOrder;
 use App\Models\DoItemBox;
+use App\Models\ScanResult;
 use App\Services\AnomalyNotificationService;
 use App\Services\InboundReconciliationService;
 use App\Traits\ApiResponse;
@@ -29,8 +30,17 @@ class InboundScanController extends Controller
             'started_at' => now(),
         ]);
 
+        $deliveryOrder = $deliveryOrder->fresh(['vendor', 'warehouse', 'items.boxes']);
+
+        // INTERVENSI: Paksa hitung total global untuk memastikan frontend mendapat angka 3 (bukan 1 atau null)
+        $scannedTotal = (int) $deliveryOrder->items->sum('scanned_qty');
+        $expectedTotal = (int) $deliveryOrder->items->sum('expected_qty');
+
+        $deliveryOrder->setAttribute('scanned_total', $scannedTotal);
+        $deliveryOrder->setAttribute('expected_total', $expectedTotal);
+
         return $this->successResponse(
-            $deliveryOrder->fresh(['vendor', 'warehouse', 'items.boxes']),
+            $deliveryOrder,
             'Proses scan inbound dimulai.'
         );
     }
@@ -55,13 +65,20 @@ class InboundScanController extends Controller
             $request->user('api')
         );
 
+        // INTERVENSI: Hitung progress global DO dan sertakan di payload terpisah dari progress SKU
+        $scannedTotal = (int) $deliveryOrder->items()->sum('scanned_qty');
+        $expectedTotal = (int) $deliveryOrder->items()->sum('expected_qty');
+
         return $this->successResponse(
             array_merge($result['data'], [
-                'manifest_status' => $result['data']['manifest_status'] ?? DeliveryOrder::STATUS_IN_PROGRESS,
+                'manifest_status' => $result['data']['manifest_status'] ?? $deliveryOrder->status,
+                'manifest_progress' => [
+                    'scanned_total' => $scannedTotal,
+                    'expected_total' => $expectedTotal,
+                ]
             ]),
             $result['message']
         );
-
     }
 
     public function finish(Request $request, DeliveryOrder $deliveryOrder): JsonResponse
@@ -91,40 +108,46 @@ class InboundScanController extends Controller
                 ->lockForUpdate()
                 ->get();
 
-            foreach ($missingItems as $item) {
-                $item->update(['final_status' => 'MISSING']);
-
+            if ($missingItems->isNotEmpty()) {
+                $firstMissing = $missingItems->first();
+                
                 $anomaly = $this->createInboundAnomaly(
                     $deliveryOrder,
                     Anomaly::DISCREPANCY_MISSING,
-                    $item->sku,
-                    $item->expected_qty,
-                    $item->scanned_qty,
+                    $firstMissing->sku,
+                    $firstMissing->expected_qty,
+                    $firstMissing->scanned_qty,
                     $request->user('api')->id
                 );
 
+                $deliveryOrder->update([
+                    'status' => DeliveryOrder::STATUS_HOLD_INBOUND,
+                    'completed_at' => now(),
+                ]);
+
                 app(AnomalyNotificationService::class)->notifySupervisorsForNewAnomaly($anomaly);
+
+                return $this->successResponse([
+                    'requires_evidence' => true,
+                    'anomaly_status' => 'MISSING',
+                    'anomaly' => $anomaly,
+                    'expected_item' => [
+                        'sku' => $firstMissing->sku,
+                        'partName' => $firstMissing->part_name
+                    ],
+                    'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences"
+                ], 'Sesi di-HOLD. Ditemukan part kuantitas kurang (MISSING). Wajib upload foto bukti fisik.');
             }
 
-            $status = $missingItems->isEmpty()
-                ? DeliveryOrder::STATUS_COMPLETED
-                : DeliveryOrder::STATUS_HOLD_INBOUND;
-
             $deliveryOrder->update([
-                'status' => $status,
+                'status' => DeliveryOrder::STATUS_COMPLETED,
                 'completed_at' => now(),
             ]);
 
-            return $this->successResponse(
-                [
-                    'manifest' => $deliveryOrder->fresh(['items.boxes']),
-                    'missing_item_count' => $missingItems->count(),
-                    'missing_box_count' => $missingBoxes->count(),
-                ],
-                $missingItems->isEmpty()
-                ? 'Scan inbound selesai normal.'
-                : 'Scan inbound selesai dengan item MISSING. Manifest masuk HOLD_INBOUND.'
-            );
+            return $this->successResponse([
+                'requires_evidence' => false,
+                'manifest' => $deliveryOrder->fresh(['items.boxes'])
+            ], 'Scan inbound selesai normal.');
         });
     }
 
@@ -147,5 +170,47 @@ class InboundScanController extends Controller
             'status' => Anomaly::STATUS_PENDING_REVIEW,
             'reported_by' => $reportedBy,
         ]);
+    }
+
+    public function scanResults(Request $request, DeliveryOrder $deliveryOrder): JsonResponse
+    {
+        $results = ScanResult::query()
+            ->with(['operator:id,name', 'doItem:id,sku,part_name,vendor_barcode'])
+            ->where('delivery_order_id', $deliveryOrder->id)
+            ->when($request->status, fn($q, $s) => $q->where('result_status', $s))
+            ->when($request->search, function ($q, $search) {
+                $q->where(function ($inner) use ($search) {
+                    $inner->where('scanned_barcode', 'ilike', "%{$search}%")
+                          ->orWhereHas('operator', fn($u) => $u->where('name', 'ilike', "%{$search}%"));
+                });
+            })
+            ->orderBy('scanned_at', 'desc')
+            ->paginate($request->integer('per_page', 15));
+
+        $missingBoxes = \App\Models\DoItemBox::query()
+            ->with(['doItem:id,sku,part_name,vendor_barcode'])
+            ->where('delivery_order_id', $deliveryOrder->id)
+            ->where('status', \App\Models\DoItemBox::STATUS_MISSING)
+            ->get()
+            ->map(fn($box) => [
+                'id' => 'missing_' . $box->id,
+                'scanned_barcode' => $box->barcode,
+                'result_status' => 'MISSING',
+                'scanned_at' => null,
+                'operator' => null,
+                'device_id' => null,
+                'doItem' => $box->doItem,
+            ]);
+
+        return $this->successResponse([
+            'scan_results' => $results,
+            'missing_items' => $missingBoxes,
+            'summary' => [
+                'total_scanned' => $deliveryOrder->items()->sum('scanned_qty'),
+                'total_expected' => $deliveryOrder->items()->sum('expected_qty'),
+                'do_number' => $deliveryOrder->do_number,
+                'status' => $deliveryOrder->status,
+            ]
+        ], 'Scan results berhasil diambil.');
     }
 }

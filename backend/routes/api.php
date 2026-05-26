@@ -37,6 +37,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/delivery-orders/{delivery_order}/inbound/start', [InboundScanController::class, 'start']);
             Route::post('/delivery-orders/{delivery_order}/inbound/scans', [InboundScanController::class, 'scan']);
             Route::post('/delivery-orders/{delivery_order}/inbound/finish', [InboundScanController::class, 'finish']);
+            Route::get('/delivery-orders/{delivery_order}/scan-results', [InboundScanController::class, 'scanResults']);
 
             Route::post('/anomalies/{anomaly}/evidences', [AnomalyEvidenceController::class, 'store']);
 

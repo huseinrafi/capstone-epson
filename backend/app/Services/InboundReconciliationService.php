@@ -19,16 +19,17 @@ class InboundReconciliationService
         return DB::transaction(function () use ($deliveryOrder, $payload, $operator) {
             $barcode = $payload['barcode'];
 
-            // Cari do_item berdasarkan vendor_barcode yang disimpan di do_items.
-            // Barcode yang di-scan dari fisik kotak adalah vendor_barcode (tanpa suffix).
-            // Suffix (-A, -B, dst) hanya untuk membedakan kotak individu di do_item_boxes.
-            $item = DoItem::query()
+            // Barcode yang dikirim dari scanner adalah box_barcode (vendor_barcode + suffix).
+            // Contoh: VB-001-A, VB-001-B, VB-001-C, dst.
+            // Lookup langsung ke do_item_boxes.barcode — ini adalah single source of truth.
+            $box = DoItemBox::query()
+                ->with('doItem')
                 ->where('delivery_order_id', $deliveryOrder->id)
-                ->where('vendor_barcode', $barcode)
+                ->where('barcode', $barcode)
                 ->lockForUpdate()
                 ->first();
 
-            if (!$item) {
+            if (!$box) {
                 $scan = $this->recordScan($deliveryOrder, null, $operator, $payload, ScanResult::STATUS_NOT_FOUND);
 
                 $anomaly = $this->recordAnomaly(
@@ -41,19 +42,16 @@ class InboundReconciliationService
                     $operator
                 );
 
-                return $this->anomalyResult($scan, $anomaly, ScanResult::STATUS_NOT_FOUND, 'Barcode tidak ditemukan di manifest aktif.');
+                return $this->anomalyResult($scan, $anomaly, ScanResult::STATUS_NOT_FOUND, 'Barcode tidak ditemukan di manifest. Pastikan scan box barcode yang benar (contoh: VB-001-A).');
             }
 
-            // Cek apakah masih ada slot kotak yang belum di-scan untuk item ini
-            $box = DoItemBox::query()
-                ->where('delivery_order_id', $deliveryOrder->id)
-                ->where('do_item_id', $item->id)
-                ->where('status', DoItemBox::STATUS_PENDING)
+            $item = DoItem::query()
+                ->whereKey($box->do_item_id)
                 ->lockForUpdate()
-                ->first();
+                ->firstOrFail();
 
-            if (!$box) {
-                // Tidak ada slot tersisa → OVER
+            if ($box->status === DoItemBox::STATUS_SCANNED) {
+                // Box ini sudah pernah di-scan → OVER (duplikat)
                 $scan = $this->recordScan($deliveryOrder, $item, $operator, $payload, ScanResult::STATUS_OVER);
 
                 $anomaly = $this->recordAnomaly(
@@ -66,7 +64,7 @@ class InboundReconciliationService
                     $operator
                 );
 
-                return $this->anomalyResult($scan, $anomaly, ScanResult::STATUS_OVER, 'Jumlah scan sudah melebihi expected quantity.');
+                return $this->anomalyResult($scan, $anomaly, ScanResult::STATUS_OVER, 'Box ini sudah pernah di-scan sebelumnya.');
             }
 
             $box->update([
@@ -101,6 +99,8 @@ class InboundReconciliationService
                         'do_number' => $deliveryOrder->do_number,
                         'sku' => $item->sku,
                         'part_name' => $item->part_name,
+                        'vendor_barcode' => $item->vendor_barcode,
+                        'box_barcode' => $box->barcode,
                     ],
                     'print_status' => 'QUEUED',
                     'item_progress' => [
