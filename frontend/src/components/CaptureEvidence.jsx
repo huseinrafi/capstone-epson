@@ -3,7 +3,8 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 
 export default function CaptureEvidence() {
   const navigate = useNavigate();
-  const { doId } = useParams();
+  const { id } = useParams();
+  const doId = id;
   const location = useLocation();
   const state = location.state || {};
 

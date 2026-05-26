@@ -417,7 +417,8 @@ export default function Manifests() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const role = localStorage.getItem('role') || '';
-  const canCreate = CAN_CREATE.includes(role);
+  const canCreate = ['admin_gudang', 'supervisor', 'manajer'].includes(role);
+  const canDelete = ['supervisor', 'manajer'].includes(role);
 
   // ── KPI state — diambil langsung dari DB, terpisah dari tabel ──────────────
   const [kpi, setKpi] = useState({
@@ -692,7 +693,7 @@ export default function Manifests() {
           ) : (
             filtered.map(m => {
               const st = STATUS_STYLE[m.status] || STATUS_STYLE.PENDING;
-              const canDelete = m.status === 'PENDING' && canCreate;
+              const canDeleteRow = m.status === 'PENDING' && canDelete;
               return (
                 <div key={m.id} className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-3.5 border-b border-gray-50 hover:bg-gray-50 transition-colors">
                   {/* Color indicator */}
@@ -717,7 +718,7 @@ export default function Manifests() {
 
                   {/* Actions */}
                   <div className="flex items-center justify-end gap-2">
-                    {canDelete && (
+                    {canDeleteRow && (
                       <button
                         onClick={() => setDeleteTarget(m)}
                         className="text-gray-400 hover:text-red-500 transition-colors p-1"
