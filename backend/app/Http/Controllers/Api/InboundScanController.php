@@ -30,8 +30,17 @@ class InboundScanController extends Controller
             'started_at' => now(),
         ]);
 
+        $deliveryOrder = $deliveryOrder->fresh(['vendor', 'warehouse', 'items.boxes']);
+
+        // INTERVENSI: Paksa hitung total global untuk memastikan frontend mendapat angka 3 (bukan 1 atau null)
+        $scannedTotal = (int) $deliveryOrder->items->sum('scanned_qty');
+        $expectedTotal = (int) $deliveryOrder->items->sum('expected_qty');
+
+        $deliveryOrder->setAttribute('scanned_total', $scannedTotal);
+        $deliveryOrder->setAttribute('expected_total', $expectedTotal);
+
         return $this->successResponse(
-            $deliveryOrder->fresh(['vendor', 'warehouse', 'items.boxes']),
+            $deliveryOrder,
             'Proses scan inbound dimulai.'
         );
     }
@@ -56,13 +65,20 @@ class InboundScanController extends Controller
             $request->user('api')
         );
 
+        // INTERVENSI: Hitung progress global DO dan sertakan di payload terpisah dari progress SKU
+        $scannedTotal = (int) $deliveryOrder->items()->sum('scanned_qty');
+        $expectedTotal = (int) $deliveryOrder->items()->sum('expected_qty');
+
         return $this->successResponse(
             array_merge($result['data'], [
-                'manifest_status' => $result['data']['manifest_status'] ?? DeliveryOrder::STATUS_IN_PROGRESS,
+                'manifest_status' => $result['data']['manifest_status'] ?? $deliveryOrder->status,
+                'manifest_progress' => [
+                    'scanned_total' => $scannedTotal,
+                    'expected_total' => $expectedTotal,
+                ]
             ]),
             $result['message']
         );
-
     }
 
     public function finish(Request $request, DeliveryOrder $deliveryOrder): JsonResponse
@@ -77,7 +93,6 @@ class InboundScanController extends Controller
         }
 
         return DB::transaction(function () use ($deliveryOrder, $request) {
-            // 1. Ambil kotak yang tidak pernah di-scan oleh operator
             $missingBoxes = DoItemBox::query()
                 ->where('delivery_order_id', $deliveryOrder->id)
                 ->where('status', DoItemBox::STATUS_PENDING)
@@ -88,14 +103,12 @@ class InboundScanController extends Controller
                 $box->update(['status' => DoItemBox::STATUS_MISSING]);
             }
 
-            // 2. Cari item yang jumlah scanaktualnya kurang dari ekspektasi DO
             $missingItems = $deliveryOrder->items()
                 ->whereColumn('scanned_qty', '<', 'expected_qty')
                 ->lockForUpdate()
                 ->get();
 
             if ($missingItems->isNotEmpty()) {
-                // Buat satu entri anomali utama untuk mewakili kasus part kurang ini
                 $firstMissing = $missingItems->first();
                 
                 $anomaly = $this->createInboundAnomaly(
@@ -114,7 +127,6 @@ class InboundScanController extends Controller
 
                 app(AnomalyNotificationService::class)->notifySupervisorsForNewAnomaly($anomaly);
 
-                // Kirimkan sinyal intervensi kembar agar frontend tahu ada penahanan dokumen
                 return $this->successResponse([
                     'requires_evidence' => true,
                     'anomaly_status' => 'MISSING',
@@ -127,7 +139,6 @@ class InboundScanController extends Controller
                 ], 'Sesi di-HOLD. Ditemukan part kuantitas kurang (MISSING). Wajib upload foto bukti fisik.');
             }
 
-            // Kondisi Ideal: Semua MATCH
             $deliveryOrder->update([
                 'status' => DeliveryOrder::STATUS_COMPLETED,
                 'completed_at' => now(),
@@ -176,7 +187,6 @@ class InboundScanController extends Controller
             ->orderBy('scanned_at', 'desc')
             ->paginate($request->integer('per_page', 15));
 
-        // Tambahkan MISSING dari boxes yang tidak di-scan
         $missingBoxes = \App\Models\DoItemBox::query()
             ->with(['doItem:id,sku,part_name,vendor_barcode'])
             ->where('delivery_order_id', $deliveryOrder->id)
@@ -196,12 +206,11 @@ class InboundScanController extends Controller
             'scan_results' => $results,
             'missing_items' => $missingBoxes,
             'summary' => [
-                'total_scanned' => $deliveryOrder->scanned_total,
-                'total_expected' => $deliveryOrder->expected_total,
+                'total_scanned' => $deliveryOrder->items()->sum('scanned_qty'),
+                'total_expected' => $deliveryOrder->items()->sum('expected_qty'),
                 'do_number' => $deliveryOrder->do_number,
                 'status' => $deliveryOrder->status,
             ]
         ], 'Scan results berhasil diambil.');
     }
-
 }

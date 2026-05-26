@@ -19,6 +19,9 @@ export default function BarcodeScanner() {
   const [showExitPopup, setShowExitPopup] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
 
+  // STATE UNTUK FLASHLIGHT
+  const [flashOn, setFlashOn] = useState(false);
+
   const [recentScans, setRecentScans] = useState(() => {
     try {
       const saved = sessionStorage.getItem(scanStorageKey(id));
@@ -28,6 +31,7 @@ export default function BarcodeScanner() {
 
   const html5QrCode = useRef(null);
   const scanLock = useRef(false);
+  const containerRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -92,15 +96,92 @@ export default function BarcodeScanner() {
     return () => { isMounted = false; };
   }, [deliveryOrderId]);
 
-  // ─── PROSES BARCODE ───────────────────────────────────────────────────────
+  // ─── INTERSEPT HARDWARE BACK BUTTON ANDROID (ANTI NAVIGASI LIAR) ───
+  useEffect(() => {
+    if (!doReady) return;
+
+    // Masukkan state bayangan ke history stack agar back button tertahan
+    window.history.pushState(null, null, window.location.pathname);
+
+    const handleAndroidBackButton = (e) => {
+      e.preventDefault();
+      // Kunci kembali posisi history agar browser tidak berpindah halaman
+      window.history.pushState(null, null, window.location.pathname);
+      // Nyalakan modal konfirmasi keluar SVSB
+      setShowExitPopup(true);
+    };
+
+    window.addEventListener('popstate', handleAndroidBackButton);
+
+    return () => {
+      window.removeEventListener('popstate', handleAndroidBackButton);
+    };
+  }, [doReady]);
+
+  // ─── PROSES BARCODE & PERBAIKAN SENTER (NATIVE OVERRIDE) ───────────────────
   const stopCamera = useCallback(() => {
     if (html5QrCode.current) {
       try {
-        html5QrCode.current.stop().then(() => html5QrCode.current.clear()).catch(() => {});
+        html5QrCode.current.stop().then(() => html5QrCode.current.clear()).catch(() => { });
       } catch (e) { console.error(e); }
       html5QrCode.current = null;
     }
+    setFlashOn(false);
   }, []);
+
+  const handleReportIssue = async () => {
+    try {
+      if (html5QrCode.current?.isScanning) {
+        await html5QrCode.current.stop();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    navigate(`/capture-evidence/${deliveryOrderId}`, {
+      state: {
+        anomalyId: `manual-${deliveryOrderId}`,
+        anomalyType: 'MANUAL_ISSUE',
+        doNumber,
+        scannedBarcode: 'MANUAL RECONCILIATION EXCEPTION',
+        evidenceUploadUrl:
+          `/api/v1/anomalies/manual-${deliveryOrderId}/evidences`
+      }
+    });
+  };
+
+  const toggleFlashlight = async () => {
+    try {
+      const nextFlashState = !flashOn;
+
+      // Menggunakan containerRef untuk mencari video di dalam komponen ini saja
+      const videoElem = containerRef.current?.querySelector('video');
+
+      if (videoElem && videoElem.srcObject) {
+        const track = videoElem.srcObject.getVideoTracks()[0];
+        const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+
+        if (capabilities.torch || 'torch' in capabilities) {
+          await track.applyConstraints({
+            advanced: [{ torch: nextFlashState }]
+          });
+          setFlashOn(nextFlashState);
+          return; // Sukses via native track ref
+        }
+      }
+
+      // Fallback ke constraints library jika track native belum siap
+      if (html5QrCode.current && html5QrCode.current.isScanning) {
+        await html5QrCode.current.applyVideoConstraints({
+          advanced: [{ torch: nextFlashState }]
+        });
+        setFlashOn(nextFlashState);
+      }
+    } catch (err) {
+      console.warn('Hardware torch tidak merespon:', err);
+      alert('Senter gagal diaktifkan. Pastikan menggunakan browser didukung dan izin kamera aktif.');
+    }
+  };
 
   const processBarcode = useCallback(async (barcodeText) => {
     try {
@@ -118,7 +199,7 @@ export default function BarcodeScanner() {
       if (response.ok && result.success) {
         const status = result.data.result_status;
         const payload = result.data.label_payload;
-        const currentProgress = result.data.item_progress;
+        const globalProgress = result.data.manifest_progress;
 
         setScanStatus(status);
 
@@ -128,15 +209,17 @@ export default function BarcodeScanner() {
           const sku = payload?.sku || '';
 
           setScanMessage(partName);
-          if (currentProgress) {
-            setProgress({ scanned: currentProgress.scanned_qty, expected: currentProgress.expected_qty });
+          if (globalProgress) {
+            setProgress({
+              scanned: globalProgress.scanned_total,
+              expected: globalProgress.expected_total
+            });
           }
           setRecentScans(prev => [{
             partName, sku, sn: boxBarcode, status: 'MATCH',
             time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           }, ...prev].slice(0, 10));
 
-          // MATCH: buka kunci setelah 2 detik
           setTimeout(() => {
             setScanStatus(null);
             scanLock.current = false;
@@ -144,40 +227,43 @@ export default function BarcodeScanner() {
           }, 2000);
 
         } else {
-          // ANOMALI (NOT_FOUND, OVER, MISMATCH) → BLOK kamera, arahkan ke CaptureEvidence
           const anomalyData = result.data.anomaly;
           const evidenceUrl = result.data.evidence_upload_url;
 
+          let mappedAnomalyType = status;
+          if (status === 'OVER' || status === 'EXCESSIVE') {
+            mappedAnomalyType = 'EXCESSIVE';
+          }
+
           setRecentScans(prev => [{
-            partName: barcodeText, sku: '', sn: '', status,
+            partName: barcodeText, sku: '', sn: '', status: mappedAnomalyType,
             time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           }, ...prev].slice(0, 10));
 
-          // Tampilkan error singkat lalu navigate ke CaptureEvidence
           setScanMessage(result.message || 'Anomali terdeteksi');
+
           setTimeout(() => {
-            stopCamera();
+            if (typeof stopCamera === 'function') {
+              stopCamera();
+            } else {
+              try { html5QrCode.current?.stop(); } catch (e) { console.error(e); }
+            }
+
             navigate(`/capture-evidence/${deliveryOrderId}`, {
               state: {
-                anomalyId: anomalyData?.id,
-                anomalyType: status,
+                anomalyId: anomalyData?.id || result.data.anomaly_id,
+                anomalyType: mappedAnomalyType,
                 doNumber: doNumber,
                 scannedBarcode: barcodeText,
                 affectedSku: anomalyData?.affected_sku,
                 expectedQty: anomalyData?.expected_qty,
                 actualQty: anomalyData?.actual_qty,
-                evidenceUploadUrl: evidenceUrl,
-                // Data untuk tampilan Expected vs Scanned (dari label_payload jika MISMATCH)
-                expectedItem: payload ? {
-                  sku: payload.sku,
-                  partName: payload.part_name,
-                } : null,
+                evidenceUploadUrl: evidenceUrl || `/api/v1/anomalies/${anomalyData?.id || result.data.anomaly_id}/evidences`,
               }
             });
           }, 1500);
         }
       } else {
-        // HTTP error / success: false → juga anomali
         const status = 'NOT_FOUND';
         setScanStatus(status);
         setScanMessage(result.message || 'Barcode tidak dikenali oleh sistem');
@@ -205,7 +291,7 @@ export default function BarcodeScanner() {
     }
   }, [deliveryOrderId, doNumber, navigate, stopCamera]);
 
-  // ─── KAMERA ───────────────────────────────────────────────────────────────
+  // ─── KAMERA KONTROL ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!doReady) return;
     let isMounted = true;
@@ -222,7 +308,7 @@ export default function BarcodeScanner() {
             try { html5QrCode.current?.isScanning && html5QrCode.current.pause(true); } catch (e) { console.error(e); }
             await processBarcode(decodedText.trim().toUpperCase());
           },
-          () => {}
+          () => { }
         );
       } catch (err) { console.error('Kamera gagal:', err); }
     };
@@ -235,7 +321,7 @@ export default function BarcodeScanner() {
     };
   }, [doReady, processBarcode, stopCamera]);
 
-  // ─── FINISH ───────────────────────────────────────────────────────────────
+  // ─── FINISH CONTEXT ────────────────────────────────────────────────────────
   const handleFinishConfirm = async () => {
     setIsFinishing(true);
     try {
@@ -245,18 +331,15 @@ export default function BarcodeScanner() {
         { method: 'POST', headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` } }
       );
       const result = await response.json();
-      
+
       if (response.ok && result.success) {
-        // Hapus data cache pemicu scan lokal
         sessionStorage.removeItem(scanStorageKey(deliveryOrderId));
 
         if (result.data.requires_evidence) {
-          // Jika backend mendeteksi item kurang, paksa kemudi rute ke halaman CaptureEvidence
-          // Manfaatkan state terstruktur yang sudah dikenali oleh komponen CaptureEvidence Anda
           navigate(`/capture-evidence/${deliveryOrderId}`, {
             state: {
               anomalyId: result.data.anomaly?.id,
-              anomalyType: 'MISSING', // Menggunakan banner merah penanda discrepancy
+              anomalyType: 'MISSING',
               doNumber: doNumber,
               scannedBarcode: 'PART QUANTITY MISSING',
               affectedSku: result.data.anomaly?.affected_sku,
@@ -267,7 +350,6 @@ export default function BarcodeScanner() {
             }
           });
         } else {
-          // Kasus Normal / Bersih: Arahkan ke rute sukses (Perhatikan kecocokan nama rute '/manifests-completed/')
           navigate(`/manifests-completed/${deliveryOrderId}`, {
             state: {
               doNumber: result.data.manifest?.do_number || doNumber,
@@ -292,7 +374,6 @@ export default function BarcodeScanner() {
     }
   };
 
-  // ─── RENDER ───────────────────────────────────────────────────────────────
   const progressPercent = progress.expected > 0
     ? Math.min((progress.scanned / progress.expected) * 100, 100) : 0;
 
@@ -319,7 +400,7 @@ export default function BarcodeScanner() {
 
   return (
     <div className="flex flex-col min-h-[100dvh] bg-[#F8F9FA] font-sans">
-      {/* HEADER */}
+      {/* HEADER WITH TOGGLE SENTER */}
       <header className="flex items-center justify-between p-4 bg-white border-b border-gray-200">
         <button onClick={() => setShowExitPopup(true)} className="text-gray-600">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -327,10 +408,15 @@ export default function BarcodeScanner() {
           </svg>
         </button>
         <h1 className="text-[#002060] font-bold tracking-wide">EPSON LOGISTICS</h1>
-        <button className="text-gray-500">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-          </svg>
+
+        {/* FLASHLIGHT TOGGLE BUTTON (Pojok Kanan Atas) */}
+        <button
+          onClick={toggleFlashlight}
+          className={`w-9 h-9 rounded-full flex items-center justify-center font-bold border shadow-sm active:scale-95 transition-all text-base ${flashOn ? 'bg-yellow-400 text-gray-900 border-yellow-500' : 'bg-gray-100 text-gray-500 border-gray-300'
+            }`}
+          title="Toggle Flashlight"
+        >
+          🔦
         </button>
       </header>
 
@@ -355,10 +441,13 @@ export default function BarcodeScanner() {
         </div>
       </div>
 
-      {/* KAMERA */}
+      {/* KAMERA CONTAINER & FLOATING BUTTON */}
       <div className="px-4">
         <div className="w-full aspect-square bg-black border-4 border-[#002060] relative overflow-hidden">
-          <div id="reader" className="w-full h-full absolute inset-0" />
+
+          {/* PASANG ref={containerRef} DI SINI */}
+          <div id="reader" ref={containerRef} className="absolute inset-0 z-0" />
+
           <div className="absolute inset-8 border-2 border-dashed border-white/40 z-10 pointer-events-none">
             <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#1A4B9F]" />
             <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#1A4B9F]" />
@@ -366,6 +455,7 @@ export default function BarcodeScanner() {
             <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#1A4B9F]" />
             <div className="w-full h-0.5 bg-blue-400 absolute top-1/2 shadow-[0_0_8px_2px_rgba(59,130,246,0.7)] animate-pulse" />
           </div>
+
           <div className="absolute bottom-0 left-0 w-full text-center z-10 bg-black/50 py-1">
             <p className="text-white text-[10px] tracking-widest uppercase">ALIGN BARCODE WITHIN FRAME</p>
           </div>
@@ -387,7 +477,7 @@ export default function BarcodeScanner() {
             </div>
           </div>
         )}
-        {['MISMATCH','NOT_FOUND','OVER','UNEXPECTED','ERROR'].includes(scanStatus) && (
+        {['MISMATCH', 'NOT_FOUND', 'OVER', 'UNEXPECTED', 'ERROR'].includes(scanStatus) && (
           <div className="bg-white border-2 border-[#DC3545] p-3 flex items-center gap-4 shadow-sm">
             <div className="w-12 h-12 rounded-full border-2 border-[#DC3545] flex items-center justify-center text-[#DC3545] shrink-0">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -414,10 +504,10 @@ export default function BarcodeScanner() {
             <div key={index} className="bg-white p-3 border border-gray-200 flex items-center gap-3 shadow-sm mb-2">
               <div className={`shrink-0 ${scan.status === 'MATCH' ? 'text-[#002060]' : 'text-[#DC3545]'}`}>
                 <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="2" y="4" width="2" height="16"/><rect x="5" y="4" width="1" height="16"/>
-                  <rect x="7" y="4" width="2" height="16"/><rect x="10" y="4" width="1" height="16"/>
-                  <rect x="12" y="4" width="3" height="16"/><rect x="16" y="4" width="1" height="16"/>
-                  <rect x="18" y="4" width="2" height="16"/><rect x="21" y="4" width="1" height="16"/>
+                  <rect x="2" y="4" width="2" height="16" /><rect x="5" y="4" width="1" height="16" />
+                  <rect x="7" y="4" width="2" height="16" /><rect x="10" y="4" width="1" height="16" />
+                  <rect x="12" y="4" width="3" height="16" /><rect x="16" y="4" width="1" height="16" />
+                  <rect x="18" y="4" width="2" height="16" /><rect x="21" y="4" width="1" height="16" />
                 </svg>
               </div>
               <div className="flex-1 min-w-0">
@@ -435,18 +525,49 @@ export default function BarcodeScanner() {
         )}
       </div>
 
-      {/* FINISH BUTTON */}
+      {/* CLEAN BOTTOM FIXED BAR (Hanya Tombol Selesai Tunggal) */}
       <div className="fixed bottom-0 w-full p-4 bg-white border-t border-gray-200 z-50">
         <button onClick={() => setShowFinishPopup(true)}
-          className="w-full bg-[#002060] text-white py-3 font-semibold flex justify-center items-center gap-2 hover:bg-blue-900 transition-colors">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          className="w-full bg-[#002060] text-white py-3.5 font-bold tracking-widest text-xs uppercase flex justify-center items-center gap-2 hover:bg-blue-900 transition-colors shadow-sm">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
           </svg>
           Finish Scan
         </button>
       </div>
 
-      {/* POPUP: FINISH */}
+      {/* FLOATING REPORT ISSUE */}
+      <button
+        onClick={handleReportIssue}
+        className="
+    fixed
+    bottom-24
+    right-5
+    z-[60]
+
+    w-14
+    h-14
+
+    rounded-full
+    bg-red-600
+    text-white
+
+    shadow-xl
+    active:scale-95
+    transition
+
+    flex
+    items-center
+    justify-center
+  "
+        title="Report Issue"
+      >
+        <span className="text-2xl">
+          ⚠️
+        </span>
+      </button>
+
+      {/* POPUP MODALS LOGIC */}
       {showFinishPopup && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-end justify-center">
           <div className="bg-white w-full max-w-md shadow-2xl">
@@ -477,7 +598,6 @@ export default function BarcodeScanner() {
         </div>
       )}
 
-      {/* POPUP: EXIT */}
       {showExitPopup && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-end justify-center">
           <div className="bg-white w-full max-w-md shadow-2xl">
@@ -513,10 +633,19 @@ export default function BarcodeScanner() {
                 </svg>
                 STAY AND SCAN
               </button>
-              <button onClick={() => { stopCamera(); navigate('/inbound'); }}
-                className="w-full bg-white border-2 border-[#002060] text-[#002060] py-3 font-bold tracking-widest text-sm hover:bg-blue-50 transition-colors">
+
+              {/* PERUBAHAN DI SINI: Navigasi EXIT diselaraskan dengan History Stack Android */}
+              <button 
+                onClick={() => { 
+                  stopCamera(); 
+                  window.history.go(-1); // Mundurkan history 1 langkah untuk menghapus state bayangan
+                  setTimeout(() => navigate('/inbound'), 50); // Kembalikan ke antrean
+                }}
+                className="w-full bg-white border-2 border-[#002060] text-[#002060] py-3 font-bold tracking-widest text-sm hover:bg-blue-50 transition-colors"
+              >
                 EXIT
               </button>
+
             </div>
             <p className="text-center text-[10px] text-gray-400 pb-4 tracking-wider">EPSON SVSB • PROGRESS TERSIMPAN OTOMATIS</p>
           </div>
