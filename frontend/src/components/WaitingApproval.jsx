@@ -3,7 +3,8 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 
 export default function WaitingApproval() {
   const navigate = useNavigate();
-  const { doId } = useParams();
+  const { id } = useParams();
+  const doId = id;
   const location = useLocation();
   const doNumber = location.state?.doNumber || doId;
 
