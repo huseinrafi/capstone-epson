@@ -289,8 +289,9 @@ class TransitController extends Controller
                 ->where('transit_status', TransitItem::STATUS_SCANNED_OUT)
                 ->update(['transit_status' => TransitItem::STATUS_MISSING]);
 
+            $createdAnomaly = null;
             if ($missingCount > 0 && !$this->hasPendingMissingTransitAnomaly($transit)) {
-                $this->createTransitAnomaly(
+                $createdAnomaly = $this->createTransitAnomaly(
                     $transit,
                     Anomaly::DISCREPANCY_MISSING,
                     'MULTIPLE',
@@ -309,12 +310,35 @@ class TransitController extends Controller
                 'arrived_at' => now(),
             ]);
 
-            return $this->successResponse(
-                $transit->fresh(['items.internalItem']),
-                $status === Transit::STATUS_TRANSIT_COMPLETED
-                ? 'Transit selesai normal.'
-                : 'Transit selesai dengan selisih. Perlu investigasi supervisor.'
-            );
+            $freshTransit = $transit->fresh(['items.internalItem']);
+
+            if ($status === Transit::STATUS_INVESTIGATION_REQUIRED) {
+                $latestAnomaly = $createdAnomaly;
+                if (!$latestAnomaly) {
+                    $latestAnomaly = Anomaly::query()
+                        ->where('anomaly_type', Anomaly::TYPE_TRANSIT_DISCREPANCY)
+                        ->where('reference_type', Transit::class)
+                        ->where('reference_id', $transit->id)
+                        ->where('status', Anomaly::STATUS_PENDING_REVIEW)
+                        ->latest()
+                        ->first();
+                }
+
+                return $this->successResponse([
+                    'requires_evidence' => true,
+                    'status' => Transit::STATUS_INVESTIGATION_REQUIRED,
+                    'anomaly_status' => 'MISSING',
+                    'anomaly' => $latestAnomaly,
+                    'evidence_upload_url' => $latestAnomaly ? "/api/v1/anomalies/{$latestAnomaly->id}/evidences" : null,
+                    'transit' => $freshTransit
+                ], 'Transit selesai dengan selisih. Perlu investigasi supervisor.');
+            }
+
+            return $this->successResponse([
+                'requires_evidence' => false,
+                'status' => Transit::STATUS_TRANSIT_COMPLETED,
+                'transit' => $freshTransit
+            ], 'Transit selesai normal.');
         });
     }
 

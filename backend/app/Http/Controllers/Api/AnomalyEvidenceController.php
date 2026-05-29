@@ -15,8 +15,47 @@ class AnomalyEvidenceController extends Controller
 {
     use ApiResponse;
 
-    public function store(StoreAnomalyEvidenceRequest $request, Anomaly $anomaly): JsonResponse
+    public function store(StoreAnomalyEvidenceRequest $request, $anomalyId): JsonResponse
     {
+        if (str_starts_with($anomalyId, 'manual-')) {
+            $realId = substr($anomalyId, 7);
+            
+            // Check if it's a Transit
+            $transit = \App\Models\Transit::find($realId);
+            if ($transit) {
+                $anomaly = Anomaly::create([
+                    'anomaly_type' => Anomaly::TYPE_TRANSIT_DISCREPANCY,
+                    'reference_type' => \App\Models\Transit::class,
+                    'reference_id' => $transit->id,
+                    'discrepancy_type' => Anomaly::DISCREPANCY_MISMATCH,
+                    'affected_sku' => 'MANUAL',
+                    'expected_qty' => 0,
+                    'actual_qty' => 0,
+                    'status' => Anomaly::STATUS_PENDING_REVIEW,
+                    'reported_by' => $request->user('api')->id,
+                ]);
+            } else {
+                $do = \App\Models\DeliveryOrder::find($realId);
+                if ($do) {
+                    $anomaly = Anomaly::create([
+                        'anomaly_type' => Anomaly::TYPE_INBOUND_DISCREPANCY,
+                        'reference_type' => \App\Models\DeliveryOrder::class,
+                        'reference_id' => $do->id,
+                        'discrepancy_type' => Anomaly::DISCREPANCY_MISMATCH,
+                        'affected_sku' => 'MANUAL',
+                        'expected_qty' => 0,
+                        'actual_qty' => 0,
+                        'status' => Anomaly::STATUS_PENDING_REVIEW,
+                        'reported_by' => $request->user('api')->id,
+                    ]);
+                } else {
+                    return $this->notFoundResponse('Reference not found for manual anomaly.');
+                }
+            }
+        } else {
+            $anomaly = Anomaly::findOrFail($anomalyId);
+        }
+
         $validated = $request->validated();
         $photo = $request->file('photo');
         $fileHash = hash_file('sha256', $photo->getRealPath());
