@@ -210,30 +210,34 @@ export default function TransitScanner() {
         }, 2000);
 
       } else {
-        // Penanganan Deteksi Anomali Lapangan (OVER / DUPLICATE dari scan-in teman)
+        // Penanganan Deteksi Anomali Lapangan (OVER / MISMATCH / UNEXPECTED)
+        const anomalyErrors = result.errors || {};
         const anomalyData = result.data?.anomaly || result.anomaly;
-        const evidenceUrl = result.data?.evidence_upload_url || result.evidence_upload_url;
+        
+        const resolvedAnomalyId = anomalyErrors.anomaly_id || anomalyData?.id || result.data?.anomaly_id || result.anomaly_id;
+        const resolvedAnomalyType = anomalyErrors.anomaly_type || result.data?.anomaly_type || result.anomaly_type || anomalyData?.discrepancy_type || 'OVER';
+        const evidenceUrl = anomalyErrors.evidence_upload_url || result.data?.evidence_upload_url || result.evidence_upload_url;
 
         setRecentScans(prev => [{
-          partName: barcodeText, sku: '', sn: '', status: 'OVER',
+          partName: barcodeText, sku: '', sn: '', status: resolvedAnomalyType,
           time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
         }, ...prev].slice(0, 10));
 
         setScanMessage(result.message || 'Anomali terdeteksi');
-        setScanStatus('OVER');
+        setScanStatus(resolvedAnomalyType);
 
         setTimeout(() => {
           stopCamera();
           navigate(`/capture-evidence/${transitId}`, {
             state: {
-              anomalyId: anomalyData?.id || result.data?.anomaly_id || result.anomaly_id,
-              anomalyType: 'OVER',
+              anomalyId: resolvedAnomalyId,
+              anomalyType: resolvedAnomalyType,
               doNumber: transitNumber,
               scannedBarcode: barcodeText,
               isTransit: true,
               originWarehouse: transitData?.originWarehouse?.name || transitData?.origin_warehouse?.name,
               destWarehouse: transitData?.destinationWarehouse?.name || transitData?.destination_warehouse?.name || transitData?.dest_warehouse?.name,
-              evidenceUploadUrl: evidenceUrl || `/api/v1/anomalies/${anomalyData?.id || result.data?.anomaly_id}/evidences`,
+              evidenceUploadUrl: evidenceUrl || `/api/v1/anomalies/${resolvedAnomalyId}/evidences`,
             }
           });
         }, 1500);

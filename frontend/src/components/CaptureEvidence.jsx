@@ -137,34 +137,76 @@ export default function CaptureEvidence() {
   };
 
   const getAnomalyLabel = () => {
-    switch (anomalyType) {
-      case 'MISSING':
-        return {
-          title: 'MISSING PARTS DETECTED',
-          sub: 'Quantity does not match manifest entry.'
-        };
-      case 'EXCESSIVE':
-      case 'OVER':
-        return {
-          title: 'EXCESSIVE AMOUNT',
-          sub: 'Quantity exceed the manifest entry.'
-        };
-      case 'MANUAL_ISSUE':
-        return {
-          title: 'REPORT AN ISSUE',
-          sub: 'If there is any problem on the package.'
-        };
-      case 'MISMATCH':
-        return {
-          title: 'MISMATCH DETECTED',
-          sub: 'Hardware scan does not match manifest entry.'
-        };
-      case 'NOT_FOUND':
-      default:
-        return {
-          title: 'MISMATCH DETECTED',
-          sub: 'Barcode does not match manifest entry.'
-        };
+    if (isTransit) {
+      switch (anomalyType) {
+        case 'MISSING':
+          return {
+            title: 'MISSING ITEM',
+            sub: 'Boks terdaftar di surat jalan, tapi fisiknya tidak ada/tertinggal.'
+          };
+        case 'UNEXPECTED':
+          return {
+            title: 'UNEXPECTED ITEM',
+            sub: 'Barcode hantu/asing, tidak terdaftar di sistem master Epson.'
+          };
+        case 'MISMATCH':
+          return {
+            title: 'ROUTE MISMATCH',
+            sub: 'Boks resmi Epson, tapi salah rute/salah masuk truk pengiriman.'
+          };
+        case 'DAMAGE':
+        case 'DAMAGED':
+          return {
+            title: 'DAMAGED BOX',
+            sub: 'Fisik boks atau komponen hancur/rusak saat proses mobilisasi.'
+          };
+        case 'EXCESSIVE':
+        case 'OVER':
+          return {
+            title: 'EXCESSIVE AMOUNT',
+            sub: 'Boks sudah pernah di-scan sebelumnya (duplikat).'
+          };
+        case 'MANUAL_ISSUE':
+          return {
+            title: 'REPORT AN ISSUE',
+            sub: 'Jika terdapat kendala fisik boks atau komponen di luar proses scanning.'
+          };
+        default:
+          return {
+            title: 'UNEXPECTED ITEM',
+            sub: 'Barcode hantu/asing, tidak terdaftar di sistem master Epson.'
+          };
+      }
+    } else {
+      switch (anomalyType) {
+        case 'MISSING':
+          return {
+            title: 'MISSING PARTS DETECTED',
+            sub: 'Quantity does not match manifest entry.'
+          };
+        case 'EXCESSIVE':
+        case 'OVER':
+          return {
+            title: 'EXCESSIVE AMOUNT',
+            sub: 'Quantity exceed the manifest entry.'
+          };
+        case 'MANUAL_ISSUE':
+          return {
+            title: 'REPORT AN ISSUE',
+            sub: 'If there is any problem on the package.'
+          };
+        case 'MISMATCH':
+          return {
+            title: 'MISMATCH DETECTED',
+            sub: 'Hardware scan does not match manifest entry.'
+          };
+        case 'NOT_FOUND':
+        default:
+          return {
+            title: 'MISMATCH DETECTED',
+            sub: 'Barcode does not match manifest entry.'
+          };
+      }
     }
   };
 

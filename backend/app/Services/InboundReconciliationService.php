@@ -19,9 +19,6 @@ class InboundReconciliationService
         return DB::transaction(function () use ($deliveryOrder, $payload, $operator) {
             $barcode = $payload['barcode'];
 
-            // Barcode yang dikirim dari scanner adalah box_barcode (vendor_barcode + suffix).
-            // Contoh: VB-001-A, VB-001-B, VB-001-C, dst.
-            // Lookup langsung ke do_item_boxes.barcode — ini adalah single source of truth.
             $box = DoItemBox::query()
                 ->with('doItem')
                 ->where('delivery_order_id', $deliveryOrder->id)
@@ -51,7 +48,6 @@ class InboundReconciliationService
                 ->firstOrFail();
 
             if ($box->status === DoItemBox::STATUS_SCANNED) {
-                // Box ini sudah pernah di-scan → OVER (duplikat)
                 $scan = $this->recordScan($deliveryOrder, $item, $operator, $payload, ScanResult::STATUS_OVER);
 
                 $anomaly = $this->recordAnomaly(

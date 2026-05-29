@@ -186,24 +186,32 @@ class TransitController extends Controller
         }
 
         return DB::transaction(function () use ($request, $transit) {
-            $item = $this->findTransitItemByBarcode($transit, $request->validated('barcode'));
+            $barcodeText = $request->validated('barcode');
+            $item = $this->findTransitItemByBarcode($transit, $barcodeText);
 
             if (!$item) {
+                // Evaluasi apakah barcode resmi terdaftar secara global di Epson internal items
+                $existsGlobally = \App\Models\InternalItem::where('internal_barcode', $barcodeText)->exists();
+                $discrepancyType = $existsGlobally ? Anomaly::DISCREPANCY_MISMATCH : Anomaly::DISCREPANCY_UNEXPECTED;
+
                 $transit->update(['status' => Transit::STATUS_INVESTIGATION_REQUIRED]);
                 $anomaly = $this->createTransitAnomaly(
                     $transit,
-                    Anomaly::DISCREPANCY_OVER,
-                    substr($request->validated('barcode'), 0, 50),
+                    $discrepancyType,
+                    substr($barcodeText, 0, 50),
                     $transit->expected_total,
                     $transit->received_total + 1,
                     $request
                 );
 
                 return $this->badRequestResponse(
-                    'Barcode tidak terdaftar dalam surat jalan transit. Status menjadi INVESTIGATION_REQUIRED.',
+                    $existsGlobally
+                        ? 'Barcode salah rute (MISMATCH). Status menjadi INVESTIGATION_REQUIRED.'
+                        : 'Barcode tidak terdaftar di master Epson (UNEXPECTED). Status menjadi INVESTIGATION_REQUIRED.',
                     [
                         'requires_evidence' => true,
                         'anomaly_id' => $anomaly->id,
+                        'anomaly_type' => $discrepancyType,
                         'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences",
                     ]
                 );
@@ -214,17 +222,18 @@ class TransitController extends Controller
                 $anomaly = $this->createTransitAnomaly(
                     $transit,
                     Anomaly::DISCREPANCY_OVER,
-                    $item->internalItem->sku,
+                    $item->internalItem->sku ?? 'UNKNOWN',
                     $transit->expected_total,
                     $transit->received_total + 1,
                     $request
                 );
 
                 return $this->badRequestResponse(
-                    'Barang sudah discan masuk. Status menjadi INVESTIGATION_REQUIRED.',
+                    'Barang sudah discan masuk (OVER). Status menjadi INVESTIGATION_REQUIRED.',
                     [
                         'requires_evidence' => true,
                         'anomaly_id' => $anomaly->id,
+                        'anomaly_type' => Anomaly::DISCREPANCY_OVER,
                         'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences",
                     ]
                 );
@@ -242,7 +251,7 @@ class TransitController extends Controller
 
             $item->internalItem->update([
                 'current_warehouse_id' => $transit->dest_warehouse_id,
-                'status' => InternalItem::STATUS_AVAILABLE,
+                'status' => \App\Models\InternalItem::STATUS_AVAILABLE,
             ]);
 
             $transit->increment('received_total');
