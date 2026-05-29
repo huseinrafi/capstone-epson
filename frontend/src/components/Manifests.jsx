@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import Sidebar from './Sidebar';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const STATUS_STYLE = {
-  PENDING:       { label: 'PENDING',      cls: 'bg-gray-100 text-gray-600 border border-gray-300' },
-  IN_PROGRESS:   { label: 'IN PROGRESS',  cls: 'bg-blue-100 text-blue-700 border border-blue-300' },
-  COMPLETED:     { label: 'COMPLETED',    cls: 'bg-green-100 text-green-700 border border-green-300' },
-  HOLD_INBOUND:  { label: 'FLAGGED',      cls: 'bg-red-100 text-red-700 border border-red-300' },
-  RETURNED:      { label: 'RETURNED',     cls: 'bg-orange-100 text-orange-700 border border-orange-300' },
+  PENDING: { label: 'PENDING', cls: 'bg-gray-100 text-gray-600 border border-gray-300' },
+  IN_PROGRESS: { label: 'IN PROGRESS', cls: 'bg-blue-100 text-blue-700 border border-blue-300' },
+  COMPLETED: { label: 'COMPLETED', cls: 'bg-green-100 text-green-700 border border-green-300' },
+  HOLD_INBOUND: { label: 'FLAGGED', cls: 'bg-red-100 text-red-700 border border-red-300' },
+  RETURNED: { label: 'RETURNED', cls: 'bg-orange-100 text-orange-700 border border-orange-300' },
 };
 
 const fmtDate = (d) => {
@@ -19,74 +20,10 @@ const fmtDate = (d) => {
 // Roles yang boleh CREATE manifest
 const CAN_CREATE = ['admin_gudang', 'supervisor', 'manajer'];
 
-function Sidebar({ onLogout }) {
-  const navItem = ({ isActive }) =>
-    `px-4 py-3 text-sm font-medium flex items-center gap-3 transition-colors rounded-md ${
-      isActive ? 'bg-[#1A4B9F] text-white' : 'text-gray-700 hover:bg-gray-100'
-    }`;
 
-  return (
-    <aside className="w-[240px] shrink-0 bg-[#F8F9FA] border-r border-gray-200 flex flex-col h-full">
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-[#002060] text-white text-xs font-bold flex items-center justify-center rounded">E</div>
-          <div>
-            <p className="text-[#002060] font-bold text-sm leading-tight">SVSB Supervisor</p>
-            <p className="text-gray-500 text-[10px]">Problem Manager</p>
-          </div>
-        </div>
-      </div>
-
-      <nav className="flex-1 py-4 px-3 flex flex-col gap-1 overflow-y-auto">
-        <NavLink to="/dashboard" className={navItem}>
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-          </svg>
-          Dashboard
-        </NavLink>
-        <NavLink to="/manifests" className={navItem}>
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-          Manifests
-        </NavLink>
-        <NavLink to="/anomalies" className={navItem}>
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          Anomalies
-        </NavLink>
-        <NavLink to="/analytics" className={navItem}>
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-          Analytics
-        </NavLink>
-        <NavLink to="/users" className={navItem}>
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-          </svg>
-          User Management
-        </NavLink>
-      </nav>
-
-      <div className="border-t border-gray-200 p-3 flex flex-col gap-1">
-        <button
-          onClick={onLogout}
-          className="px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 flex items-center gap-3 rounded-md w-full text-left font-medium"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-          Logout
-        </button>
-      </div>
-    </aside>
-  );
-}
 
 // ─── CREATE MODAL ─────────────────────────────────────────────────────────────
-function CreateManifestModal({ onClose, onSuccess }) {
+function CreateManifestModal({ onClose, onSuccess, editId = null }) {
   const [vendors, setVendors] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [isLoadingLookups, setLoadingLookups] = useState(true);
@@ -114,11 +51,34 @@ function CreateManifestModal({ onClose, onSuccess }) {
         const [vData, wData] = await Promise.all([vRes.json(), wRes.json()]);
         if (vData.success) setVendors(vData.data);
         if (wData.success) setWarehouses(wData.data);
-      } catch (err) { console.error(err); }
-      finally { setLoadingLookups(false); }
+
+        if (editId) {
+          const detailRes = await fetch(`${import.meta.env.VITE_API_URL}/delivery-orders/${editId}`, { headers });
+          const detailData = await detailRes.json();
+          if (detailData.success) {
+            const m = detailData.data;
+            setDoNumber(m.do_number || '');
+            setVendorId(m.vendor_id || '');
+            setWarehouseId(m.warehouse_id || '');
+            setNotes(m.notes || '');
+            if (m.items && m.items.length > 0) {
+              setItems(m.items.map(it => ({
+                sku: it.sku || '',
+                part_name: it.part_name || '',
+                vendor_barcode: it.vendor_barcode || '',
+                expected_qty: it.expected_qty || 0
+              })));
+            }
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingLookups(false);
+      }
     };
     load();
-  }, []);
+  }, [editId]);
 
   const addRow = () => setItems(prev => [...prev, { sku: '', part_name: '', vendor_barcode: '', expected_qty: 0 }]);
   const removeRow = (i) => setItems(prev => prev.filter((_, idx) => idx !== i));
@@ -129,8 +89,8 @@ function CreateManifestModal({ onClose, onSuccess }) {
   const handleSubmit = async () => {
     setError('');
     if (!doNumber.trim()) { setError('DO Number wajib diisi.'); return; }
-    if (!vendorId)         { setError('Vendor wajib dipilih.'); return; }
-    if (!warehouseId)      { setError('Warehouse wajib dipilih.'); return; }
+    if (!vendorId) { setError('Vendor wajib dipilih.'); return; }
+    if (!warehouseId) { setError('Warehouse wajib dipilih.'); return; }
 
     const validItems = items.filter(it => it.sku.trim() && it.vendor_barcode.trim() && it.expected_qty > 0);
     if (validItems.length === 0) {
@@ -141,8 +101,13 @@ function CreateManifestModal({ onClose, onSuccess }) {
     setSubmitting(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/delivery-orders`, {
-        method: 'POST',
+      const url = editId
+        ? `${import.meta.env.VITE_API_URL}/delivery-orders/${editId}`
+        : `${import.meta.env.VITE_API_URL}/delivery-orders`;
+      const method = editId ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           do_number: doNumber.trim(),
@@ -161,7 +126,7 @@ function CreateManifestModal({ onClose, onSuccess }) {
       if (res.ok && result.success) {
         onSuccess();
       } else {
-        setError(result.message || 'Gagal membuat manifest.');
+        setError(result.message || 'Gagal menyimpan manifest.');
       }
     } catch (err) {
       console.error(err);
@@ -181,7 +146,7 @@ function CreateManifestModal({ onClose, onSuccess }) {
             <svg className="w-5 h-5 text-[#002060]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-            <h2 className="font-bold text-gray-900 text-base">Create New Manifest</h2>
+            <h2 className="font-bold text-gray-900 text-base">{editId ? 'Edit Manifest' : 'Create New Manifest'}</h2>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -211,16 +176,9 @@ function CreateManifestModal({ onClose, onSuccess }) {
                   <input
                     value={doNumber}
                     onChange={e => setDoNumber(e.target.value)}
-                    placeholder="SCAN OR TYPE DO..."
+                    placeholder="TYPE DOCUMENT NUMBER"
                     className="flex-1 px-3 py-2 text-sm outline-none"
                   />
-                  <div className="px-2 text-gray-400">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                      <rect x="2" y="4" width="2" height="16"/><rect x="5" y="4" width="1" height="16"/>
-                      <rect x="7" y="4" width="2" height="16"/><rect x="10" y="4" width="1" height="16"/>
-                      <rect x="12" y="4" width="3" height="16"/>
-                    </svg>
-                  </div>
                 </div>
               </div>
 
@@ -233,19 +191,15 @@ function CreateManifestModal({ onClose, onSuccess }) {
                   <select
                     value={vendorId}
                     onChange={e => setVendorId(e.target.value)}
-                    className="flex-1 px-3 py-2 text-sm outline-none bg-transparent appearance-none"
+                    className={`flex-1 px-3 py-2 text-sm outline-none bg-transparent appearance-none ${vendorId === '' ? 'text-gray-400' : 'text-gray-900'
+                      }`}
                     disabled={isLoadingLookups}
                   >
-                    <option value="">ENTER VENDOR ID</option>
+                    <option value="" className="text-gray-400">Select Vendor...</option>
                     {vendors.map(v => (
-                      <option key={v.id} value={v.id}>{v.code} — {v.name}</option>
+                      <option key={v.id} value={v.id} className="text-gray-900">{v.code} — {v.name}</option>
                     ))}
                   </select>
-                  <div className="px-2 text-gray-400">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" />
-                    </svg>
-                  </div>
                 </div>
               </div>
 
@@ -257,12 +211,13 @@ function CreateManifestModal({ onClose, onSuccess }) {
                 <select
                   value={warehouseId}
                   onChange={e => setWarehouseId(e.target.value)}
-                  className="w-full border border-gray-300 focus:border-[#002060] px-3 py-2 text-sm outline-none appearance-none"
+                  className={`w-full border border-gray-300 focus:border-[#002060] px-3 py-2 text-sm outline-none appearance-none ${warehouseId === '' ? 'text-gray-400' : 'text-gray-900'
+                    }`}
                   disabled={isLoadingLookups}
                 >
-                  <option value="">Select Warehouse...</option>
+                  <option value="" className="text-gray-400">Select Warehouse...</option>
                   {warehouses.map(w => (
-                    <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
+                    <option key={w.id} value={w.id} className="text-gray-900">{w.name} ({w.code})</option>
                   ))}
                 </select>
               </div>
@@ -307,7 +262,7 @@ function CreateManifestModal({ onClose, onSuccess }) {
                   <input
                     value={item.sku}
                     onChange={e => updateRow(i, 'sku', e.target.value)}
-                    placeholder="SCAN SKU..."
+                    placeholder="TYPE SKU NUMBER..."
                     className="mx-1 px-2 py-1.5 text-sm border border-dashed border-gray-300 focus:border-[#002060] outline-none w-full font-medium text-[#002060]"
                   />
                   <input
@@ -368,7 +323,7 @@ function CreateManifestModal({ onClose, onSuccess }) {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
             </svg>
-            {isSubmitting ? 'MENYIMPAN...' : 'SAVE MANIFEST'}
+            {isSubmitting ? 'MENYIMPAN...' : editId ? 'UPDATE MANIFEST' : 'SAVE MANIFEST'}
           </button>
         </div>
       </div>
@@ -398,7 +353,7 @@ function DeleteConfirm({ manifest, onClose, onConfirm, isDeleting }) {
           </button>
           <button onClick={onConfirm} disabled={isDeleting}
             className="flex-1 bg-red-600 text-white py-2.5 text-sm font-bold hover:bg-red-700 disabled:opacity-60">
-            {isDeleting ? 'Menghapus...' : 'Ya, Batalkan'}
+            {isDeleting ? 'Menghapus...' : 'Ya, Hapus'}
           </button>
         </div>
       </div>
@@ -408,17 +363,20 @@ function DeleteConfirm({ manifest, onClose, onConfirm, isDeleting }) {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function Manifests() {
-  const [manifests, setManifests]     = useState([]);
-  const [isLoading, setIsLoading]     = useState(true);
-  const [showCreate, setShowCreate]   = useState(false);
+  const [manifests, setManifests] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [editTargetId, setEditTargetId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [isDeleting, setIsDeleting]   = useState(false);
-  const [filterStatus, setFilterStatus] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   const role = localStorage.getItem('role') || '';
+  const navigate = useNavigate();
   const canCreate = ['admin_gudang', 'supervisor', 'manajer'].includes(role);
   const canDelete = ['supervisor', 'manajer'].includes(role);
+  const canEdit = ['supervisor', 'manajer'].includes(role);
 
   // ── KPI state — diambil langsung dari DB, terpisah dari tabel ──────────────
   const [kpi, setKpi] = useState({
@@ -494,13 +452,19 @@ export default function Manifests() {
     }
   }, []);
 
+  // ── Debounce search query 400ms ───────────────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 400);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   // ── Fetch tabel manifest ───────────────────────────────────────────────────
   const fetchManifests = useCallback(async () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
       const params = new URLSearchParams({ per_page: 50 });
-      if (filterStatus) params.append('status', filterStatus);
+      if (debouncedSearch) params.append('search', debouncedSearch);
       const res = await fetch(`${import.meta.env.VITE_API_URL}/delivery-orders?${params}`, {
         headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
       });
@@ -508,7 +472,7 @@ export default function Manifests() {
       if (res.ok && result.success) setManifests(result.data.data || []);
     } catch (err) { console.error(err); }
     finally { setIsLoading(false); }
-  }, [filterStatus]);
+  }, [debouncedSearch]);
 
   // Fetch keduanya saat mount dan setiap filter berubah
   useEffect(() => {
@@ -538,13 +502,8 @@ export default function Manifests() {
     finally { setIsDeleting(false); }
   };
 
-  // ── Filter ───────────────────────────────────────────────────────────────────
-  const filtered = manifests.filter(m => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return m.do_number.toLowerCase().includes(q) ||
-           (m.vendor?.name || '').toLowerCase().includes(q);
-  });
+  // ── Filter (server-side via API, hasil sudah difilter) ───────────────────────
+  const filtered = manifests;
 
   const getLeftBarColor = (status) => {
     if (status === 'HOLD_INBOUND') return 'bg-red-500';
@@ -582,166 +541,203 @@ export default function Manifests() {
             />
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button className="flex items-center gap-2 border border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 bg-white">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-              </svg>
-              FILTERS
-            </button>
             {canCreate && (
-              <button
-                onClick={() => setShowCreate(true)}
-                className="flex items-center gap-2 bg-[#002060] text-white px-4 py-2 text-sm font-bold hover:bg-blue-900 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                CREATE MANIFEST
-              </button>
+              <>
+                <button
+                  onClick={() => navigate('/create-transit')}
+                  className="flex items-center gap-2 border border-gray-300 text-[#002060] px-4 py-2 text-sm font-bold hover:bg-[#002060] hover:text-white transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                  ISSUE TRANSIT DOCUMENT
+                </button>
+                <button
+                  onClick={() => setShowCreate(true)}
+                  className="flex items-center gap-2 bg-[#002060] text-white px-4 py-2 text-sm font-bold hover:bg-blue-900 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  CREATE MANIFEST
+                </button>
+              </>
             )}
           </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-6 bg-[#F8F9FA]">
-        <div className="max-w-full">
+          <div className="max-w-full">
 
-        {/* ── KPI CARDS ─────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          {/* Pending */}
-          <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
-            <div>
-              <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">PENDING VERIFICATION</p>
-              <p className="text-4xl font-bold text-gray-900">{kpi.pendingCount}</p>
-              {kpi.pendingCount > 0 && (
-                <p className="text-xs text-[#C0392B] font-bold mt-1">↑ {kpi.pendingCount} high priority</p>
+            {/* ── KPI CARDS ─────────────────────────────────────────────────────── */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {/* Pending */}
+              <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">PENDING VERIFICATION</p>
+                  <p className="text-4xl font-bold text-gray-900">{kpi.pendingCount}</p>
+                  {kpi.pendingCount > 0 && (
+                    <p className="text-xs text-[#C0392B] font-bold mt-1">↑ {kpi.pendingCount} high priority</p>
+                  )}
+                </div>
+                <div className="text-gray-300">
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* In Progress */}
+              <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">IN PROGRESS DROPS</p>
+                  <p className="text-4xl font-bold text-gray-900">{kpi.inProgressCount}</p>
+                  <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Avg time: {kpi.avgTime}
+                  </p>
+                </div>
+                <div className="text-gray-300">
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Completed Today */}
+              <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">COMPLETED TODAY</p>
+                  <p className="text-4xl font-bold text-gray-900">{kpi.completedToday}</p>
+                  <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {kpi.matchRate}% match rate
+                  </p>
+                </div>
+                <div className="text-gray-300">
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* ── TABLE ────────────────────────────────────────────────────────── */}
+            <div className="bg-white border border-gray-200">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <h2 className="font-bold text-gray-900 text-sm">Active Delivery Orders</h2>
+                <button className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Table header */}
+              <div className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                <div />
+                <span className="text-[10px] font-bold text-gray-500 tracking-widest pl-3">DO NUMBER</span>
+                <span className="text-[10px] font-bold text-gray-500 tracking-widest">VENDOR</span>
+                <span className="text-[10px] font-bold text-gray-500 tracking-widest">STATUS</span>
+                <span className="text-[10px] font-bold text-gray-500 tracking-widest">ARRIVAL DATE/TIME</span>
+                <span className="text-[10px] font-bold text-gray-500 tracking-widest text-right">ACTIONS</span>
+              </div>
+
+              {/* Rows */}
+              {isLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-8 h-8 border-4 border-[#002060] border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="text-center py-16 text-gray-400 text-sm">Tidak ada manifest ditemukan.</div>
+              ) : (
+                filtered.map(m => {
+                  const st = STATUS_STYLE[m.status] || STATUS_STYLE.PENDING;
+                  const canDeleteRow = m.status === 'PENDING' && canDelete;
+                  return (
+                    <div key={m.id} className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-3.5 border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                      {/* Color indicator */}
+                      <div className={`self-stretch w-1 rounded-full ${getLeftBarColor(m.status)}`} />
+
+                      {/* DO Number */}
+                      <span className="font-bold text-gray-900 text-sm pl-3">{m.do_number}</span>
+
+                      {/* Vendor */}
+                      <span className="text-sm text-gray-700">{m.vendor?.name || '—'}</span>
+
+                      {/* Status */}
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 w-fit ${st.cls}`}>
+                        {m.status === 'HOLD_INBOUND' && '⚠ '}
+                        {m.status === 'IN_PROGRESS' && '↺ '}
+                        {m.status === 'COMPLETED' && '✓ '}
+                        {st.label}
+                      </span>
+
+                      {/* Date */}
+                      <span className="text-sm text-gray-600">{fmtDate(m.created_at)}</span>
+
+                      {/* Actions */}
+                      <div className="flex items-center justify-end gap-2">
+                        {(() => {
+                          const isEditable = m.status === 'PENDING' && canEdit;
+                          const isDeletable = m.status === 'PENDING' && canDelete;
+                          return (
+                            <>
+                              {/* Edit button */}
+                              <button
+                                onClick={() => isEditable && setEditTargetId(m.id)}
+                                disabled={!isEditable}
+                                className={`p-2 transition-colors rounded shadow-xs border ${isEditable
+                                    ? 'text-gray-500 hover:text-[#002060] border-gray-300 hover:bg-gray-50 cursor-pointer'
+                                    : 'text-gray-300 border-gray-200 cursor-not-allowed opacity-50'
+                                  }`}
+                                title={
+                                  isEditable
+                                    ? "Edit manifest"
+                                    : !canEdit
+                                      ? "Hanya Supervisor/Manajer yang dapat mengedit"
+                                      : "Hanya manifest berstatus PENDING yang dapat diedit"
+                                }
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                              </button>
+
+                              {/* Delete button */}
+                              <button
+                                onClick={() => isDeletable && setDeleteTarget(m)}
+                                disabled={!isDeletable}
+                                className={`p-2 transition-colors rounded shadow-xs border ${isDeletable
+                                    ? 'text-red-600 hover:text-white border-red-300 hover:bg-red-600 cursor-pointer'
+                                    : 'text-gray-300 border-gray-200 cursor-not-allowed opacity-50'
+                                  }`}
+                                title={
+                                  isDeletable
+                                    ? "Hapus manifest"
+                                    : !canDelete
+                                      ? "Hanya Supervisor/Manajer yang dapat menghapus"
+                                      : "Hanya manifest berstatus PENDING yang dapat dihapus"
+                                }
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
-            <div className="text-gray-300">
-              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-            </div>
           </div>
-
-          {/* In Progress */}
-          <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
-            <div>
-              <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">IN PROGRESS DROPS</p>
-              <p className="text-4xl font-bold text-gray-900">{kpi.inProgressCount}</p>
-              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Avg time: {kpi.avgTime}
-              </p>
-            </div>
-            <div className="text-gray-300">
-              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </div>
-          </div>
-
-          {/* Completed Today */}
-          <div className="bg-white border border-gray-200 p-5 flex justify-between items-start">
-            <div>
-              <p className="text-[10px] font-bold text-gray-500 tracking-widest mb-2">COMPLETED TODAY</p>
-              <p className="text-4xl font-bold text-gray-900">{kpi.completedToday}</p>
-              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {kpi.matchRate}% match rate
-              </p>
-            </div>
-            <div className="text-gray-300">
-              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-          </div>
-        </div>
-
-        {/* ── TABLE ────────────────────────────────────────────────────────── */}
-        <div className="bg-white border border-gray-200">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-            <h2 className="font-bold text-gray-900 text-sm">Active Delivery Orders</h2>
-            <button className="text-gray-400 hover:text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Table header */}
-          <div className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-2.5 bg-gray-50 border-b border-gray-100">
-            <div />
-            <span className="text-[10px] font-bold text-gray-500 tracking-widest pl-3">DO NUMBER</span>
-            <span className="text-[10px] font-bold text-gray-500 tracking-widest">VENDOR</span>
-            <span className="text-[10px] font-bold text-gray-500 tracking-widest">STATUS</span>
-            <span className="text-[10px] font-bold text-gray-500 tracking-widest">ARRIVAL DATE/TIME</span>
-            <span className="text-[10px] font-bold text-gray-500 tracking-widest text-right">ACTIONS</span>
-          </div>
-
-          {/* Rows */}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-8 h-8 border-4 border-[#002060] border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-16 text-gray-400 text-sm">Tidak ada manifest ditemukan.</div>
-          ) : (
-            filtered.map(m => {
-              const st = STATUS_STYLE[m.status] || STATUS_STYLE.PENDING;
-              const canDeleteRow = m.status === 'PENDING' && canDelete;
-              return (
-                <div key={m.id} className="grid grid-cols-[4px_2fr_2fr_1.5fr_2fr_1fr] items-center px-4 py-3.5 border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  {/* Color indicator */}
-                  <div className={`self-stretch w-1 rounded-full ${getLeftBarColor(m.status)}`} />
-
-                  {/* DO Number */}
-                  <span className="font-bold text-gray-900 text-sm pl-3">{m.do_number}</span>
-
-                  {/* Vendor */}
-                  <span className="text-sm text-gray-700">{m.vendor?.name || '—'}</span>
-
-                  {/* Status */}
-                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 w-fit ${st.cls}`}>
-                    {m.status === 'HOLD_INBOUND' && '⚠ '}
-                    {m.status === 'IN_PROGRESS' && '↺ '}
-                    {m.status === 'COMPLETED' && '✓ '}
-                    {st.label}
-                  </span>
-
-                  {/* Date */}
-                  <span className="text-sm text-gray-600">{fmtDate(m.created_at)}</span>
-
-                  {/* Actions */}
-                  <div className="flex items-center justify-end gap-2">
-                    {canDeleteRow && (
-                      <button
-                        onClick={() => setDeleteTarget(m)}
-                        className="text-gray-400 hover:text-red-500 transition-colors p-1"
-                        title="Cancel manifest"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    )}
-                    <button className="text-gray-400 hover:text-[#002060] transition-colors p-1" title="View detail">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
 
         </div>
       </div>
@@ -751,6 +747,13 @@ export default function Manifests() {
         <CreateManifestModal
           onClose={() => setShowCreate(false)}
           onSuccess={() => { setShowCreate(false); fetchKpi(); fetchManifests(); }}
+        />
+      )}
+      {editTargetId && (
+        <CreateManifestModal
+          editId={editTargetId}
+          onClose={() => setEditTargetId(null)}
+          onSuccess={() => { setEditTargetId(null); fetchKpi(); fetchManifests(); }}
         />
       )}
       {deleteTarget && (

@@ -19,9 +19,6 @@ class InboundReconciliationService
         return DB::transaction(function () use ($deliveryOrder, $payload, $operator) {
             $barcode = $payload['barcode'];
 
-            // Barcode yang dikirim dari scanner adalah box_barcode (vendor_barcode + suffix).
-            // Contoh: VB-001-A, VB-001-B, VB-001-C, dst.
-            // Lookup langsung ke do_item_boxes.barcode — ini adalah single source of truth.
             $box = DoItemBox::query()
                 ->with('doItem')
                 ->where('delivery_order_id', $deliveryOrder->id)
@@ -35,7 +32,7 @@ class InboundReconciliationService
                 $anomaly = $this->recordAnomaly(
                     $deliveryOrder,
                     $scan,
-                    Anomaly::DISCREPANCY_UNEXPECTED,
+                    Anomaly::DISCREPANCY_MISMATCH,
                     substr($barcode, 0, 50),
                     0,
                     1,
@@ -51,20 +48,17 @@ class InboundReconciliationService
                 ->firstOrFail();
 
             if ($box->status === DoItemBox::STATUS_SCANNED) {
-                // Box ini sudah pernah di-scan → OVER (duplikat)
                 $scan = $this->recordScan($deliveryOrder, $item, $operator, $payload, ScanResult::STATUS_OVER);
 
-                $anomaly = $this->recordAnomaly(
-                    $deliveryOrder,
-                    $scan,
-                    Anomaly::DISCREPANCY_OVER,
-                    $item->sku,
-                    $item->expected_qty,
-                    $item->scanned_qty + 1,
-                    $operator
-                );
-
-                return $this->anomalyResult($scan, $anomaly, ScanResult::STATUS_OVER, 'Box ini sudah pernah di-scan sebelumnya.');
+                return [
+                    'success' => true,
+                    'message' => 'Box ini sudah pernah di-scan sebelumnya.',
+                    'data' => [
+                        'scan_id' => $scan->id,
+                        'result_status' => 'DUPLICATE',
+                        'duplicate_scan' => true,
+                    ]
+                ];
             }
 
             $box->update([

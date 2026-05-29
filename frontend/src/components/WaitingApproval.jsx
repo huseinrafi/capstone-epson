@@ -7,6 +7,7 @@ export default function WaitingApproval() {
   const doId = id;
   const location = useLocation();
   const doNumber = location.state?.doNumber || doId;
+  const isTransit = location.state?.isTransit || false;
 
   // Cek status secara berkala
   useEffect(() => {
@@ -14,16 +15,28 @@ export default function WaitingApproval() {
     const interval = setInterval(async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/delivery-orders/${doId}`, {
+        const endpoint = isTransit
+          ? `${import.meta.env.VITE_API_URL}/transits/${doId}`
+          : `${import.meta.env.VITE_API_URL}/delivery-orders/${doId}`;
+
+        const res = await fetch(endpoint, {
           headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
         });
         const result = await res.json();
         
         if (res.ok && result.success && isMounted) {
-          const doData = result.data;
-          // Jika sudah di-approve dan kembali ke IN_PROGRESS, redirect ke scanner
-          if (doData.status === 'IN_PROGRESS') {
-            navigate(`/scanner/${doId}`, { replace: true });
+          const data = result.data;
+          if (isTransit) {
+            if (data.status === 'IN_TRANSIT') {
+              navigate(`/transit-scanner/${doId}`, { replace: true });
+            } else if (data.status === 'TRANSIT_COMPLETED') {
+              navigate('/transit', { replace: true });
+            }
+          } else {
+            // Jika sudah di-approve dan kembali ke IN_PROGRESS, redirect ke scanner
+            if (data.status === 'IN_PROGRESS') {
+              navigate(`/scanner/${doId}`, { replace: true });
+            }
           }
         }
       } catch (err) {
@@ -35,7 +48,7 @@ export default function WaitingApproval() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [doId, navigate]);
+  }, [doId, navigate, isTransit]);
 
   return (
     <div className="flex flex-col min-h-[100dvh] bg-[#F8F9FA] items-center justify-center p-8 gap-6 font-sans">
@@ -55,7 +68,7 @@ export default function WaitingApproval() {
 
       <div className="flex flex-col w-full max-w-sm gap-3 mt-4">
         <button 
-          onClick={() => navigate('/inbound')} 
+          onClick={() => navigate(isTransit ? '/transit' : '/inbound')} 
           className="w-full bg-[#002060] text-white py-4 font-bold tracking-widest text-sm rounded shadow hover:bg-blue-900 transition-colors"
         >
           KEMBALI KE ANTRIAN

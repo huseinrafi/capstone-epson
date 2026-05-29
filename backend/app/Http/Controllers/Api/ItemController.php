@@ -3,16 +3,29 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\InternalItem;
+use App\Traits\ApiResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ItemController extends Controller
 {
+    use ApiResponse;
+
     /**
      * Display a listing of the resource.
+     * Akses terbuka untuk admin_gudang, supervisor, manajer — tanpa filter user_id.
      */
-    public function index()
+    public function index(Request $request): JsonResponse
     {
-    //
+        $items = InternalItem::query()
+            ->with(['currentWarehouse', 'deliveryOrder'])
+            ->when($request->status, fn($q, $status) => $q->where('status', $status))
+            ->when($request->warehouse_id, fn($q, $whId) => $q->where('current_warehouse_id', $whId))
+            ->latest()
+            ->paginate($request->integer('per_page', 15));
+
+        return $this->successResponse($items, 'Data internal items berhasil diambil.');
     }
 
     /**

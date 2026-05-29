@@ -3,14 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\ResetUserPasswordRequest;
-use App\Http\Requests\StoreUserManagementRequest;
-use App\Http\Requests\UpdateUserManagementRequest;
+use App\Models\Role;
 use App\Models\User;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
 class UserManagementController extends Controller
 {
@@ -18,88 +15,87 @@ class UserManagementController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'role' => ['nullable', 'string', 'max:50', 'exists:roles,slug'],
-            'status' => ['nullable', 'in:active,inactive'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
         $users = User::query()
-            ->with('role:id,name,slug')
-            ->when($validated['q'] ?? null, function ($query, string $keyword) {
-                $query->where(function ($search) use ($keyword) {
-                    $search
-                        ->where('name', 'like', "%{$keyword}%")
-                        ->orWhere('username', 'like', "%{$keyword}%")
-                        ->orWhere('email', 'like', "%{$keyword}%");
+            ->with('role')
+            ->when($request->search, function ($q, $search) {
+                $q->where(function ($sub) use ($search) {
+                    $sub->where('name', 'like', "%{$search}%")
+                        ->orWhere('username', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
                 });
             })
-            ->when($validated['role'] ?? null, fn($query, string $role) => $query->whereHas('role', fn($roleQuery) => $roleQuery->where('slug', $role)))
-            ->when($validated['status'] ?? null, fn($query, string $status) => $query->where('is_active', $status === 'active'))
-            ->orderBy('name')
-            ->paginate((int) ($validated['per_page'] ?? 15))
-            ->through(fn(User $user) => $this->userPayload($user));
+            ->when($request->role_id, fn($q, $roleId) => $q->where('role_id', $roleId))
+            ->when($request->filled('is_active'), function ($q) use ($request) {
+                $q->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN));
+            })
+            ->latest()
+            ->paginate($request->integer('per_page', 15));
 
         return $this->successResponse($users, 'Data user berhasil diambil.');
     }
 
-    public function store(StoreUserManagementRequest $request): JsonResponse
+  
+    public function roles(): JsonResponse
     {
-        $user = User::create([
-            ...$request->validated(),
-            'email_verified_at' => now(),
+        $roles = Role::all();
+
+        return $this->successResponse($roles, 'Data role berhasil diambil.');
+    }
+
+    public function updateRole(Request $request, User $user): JsonResponse
+    {
+        $validated = $request->validate([
+            'role_id' => 'required|uuid|exists:roles,id',
         ]);
 
-        return $this->successResponse($this->userPayload($user->load('role')), 'User berhasil ditambahkan.', 201);
+        $user->update(['role_id' => $validated['role_id']]);
+
+        return $this->successResponse(
+            $user->fresh('role'),
+            'Role user berhasil diperbarui.'
+        );
     }
 
-    public function show(User $user): JsonResponse
+ 
+    public function toggleStatus(User $user): JsonResponse
     {
-        return $this->successResponse($this->userPayload($user->load('role')), 'Detail user berhasil diambil.');
-    }
-
-    public function update(UpdateUserManagementRequest $request, User $user): JsonResponse
-    {
-        $user->update($request->validated());
-
-        return $this->successResponse($this->userPayload($user->fresh('role')), 'User berhasil diperbarui.');
-    }
-
-    public function resetPassword(ResetUserPasswordRequest $request, User $user): JsonResponse
-    {
-        $user->update(['password' => $request->validated('password')]);
-
-        return $this->successResponse(null, 'Password user berhasil direset.');
-    }
-
-    public function destroy(User $user): JsonResponse
-    {
-        if ($user->id === Auth::guard('api')->id()) {
-            return $this->badRequestResponse('User tidak dapat menghapus akunnya sendiri.');
+        // Jangan biarkan manajer menonaktifkan dirinya sendiri
+        if ($user->id === auth('api')->id()) {
+            return $this->badRequestResponse('Anda tidak bisa menonaktifkan akun Anda sendiri.');
         }
 
-        $user->delete();
+        $user->update(['is_active' => !$user->is_active]);
 
-        return $this->successResponse(null, 'User berhasil dihapus.');
+        return $this->successResponse(
+            $user->fresh('role'),
+            $user->is_active ? 'User berhasil diaktifkan.' : 'User berhasil dinonaktifkan.'
+        );
     }
 
-    private function userPayload(User $user): array
+    public function store(Request $request): JsonResponse
     {
-        return [
-            'id' => $user->id,
-            'name' => $user->name,
-            'username' => $user->username,
-            'email' => $user->email,
-            'role' => $user->role ? [
-                'id' => $user->role->id,
-                'name' => $user->role->name,
-                'slug' => $user->role->slug,
-            ] : null,
-            'is_active' => $user->is_active,
-            'status' => $user->is_active ? 'active' : 'inactive',
-            'created_at' => $user->created_at,
-            'updated_at' => $user->updated_at,
-        ];
+        $validated = $request->validate([
+            'name'     => 'required|string|max:255',
+            'username' => 'required|string|max:100|unique:users,username',
+            'email'    => 'required|email|max:255|unique:users,email',
+            'password' => 'required|string|min:6',
+            'role_id'  => 'required|uuid|exists:roles,id',
+        ]);
+
+        $user = User::create([
+            'role_id'           => $validated['role_id'],
+            'name'              => $validated['name'],
+            'username'          => $validated['username'],
+            'email'             => $validated['email'],
+            'email_verified_at' => now(),
+            'password'          => $validated['password'],
+            'is_active'         => true,
+        ]);
+
+        return $this->successResponse(
+            $user->load('role'),
+            'User baru berhasil ditambahkan.',
+            201
+        );
     }
 }

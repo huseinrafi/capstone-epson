@@ -14,14 +14,15 @@ export default function CaptureEvidence() {
     doNumber,
     scannedBarcode,
     evidenceUploadUrl,
+    isTransit,
   } = state;
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
 
-  const [capturedPhoto, setCapturedPhoto] = useState(null); 
-  const [capturedFile, setCapturedFile] = useState(null);   
+  const [capturedPhoto, setCapturedPhoto] = useState(null);
+  const [capturedFile, setCapturedFile] = useState(null);
   const [notes, setNotes] = useState('');
   const [gps, setGps] = useState({ lat: null, lon: null });
   const [timestamp] = useState(new Date());
@@ -121,7 +122,7 @@ export default function CaptureEvidence() {
 
       if (response.ok && result.success) {
         // Berhasil dikunci, kirim operator ke halaman tunggu approval supervisor
-        navigate(`/waiting-approval/${doId}`, { replace: true, state: { doNumber } });
+        navigate(`/waiting-approval/${doId}`, { replace: true, state: { doNumber, isTransit } });
       } else {
         alert(result.message || 'Gagal menyimpan bukti data anomali.');
         setShowSubmitPopup(false);
@@ -135,36 +136,71 @@ export default function CaptureEvidence() {
     }
   };
 
-  // ─── EVALUASI LABEL STRUKTURAL SESUAI ATURAN PRD & REVISI GAMBAR ───────────
   const getAnomalyLabel = () => {
-    switch (anomalyType) {
-      case 'MISSING':
-        return { 
-          title: 'MISSING PART DETECTED', 
-          sub: 'Part quantity does not match manifest entry.' 
-        };
-      case 'EXCESSIVE':
-      case 'OVER':
-        return { 
-          title: 'EXCESSIVE SCAN DETECTED', 
-          sub: 'Item scanned melebihi expected quantity.' 
-        };
-      case 'MANUAL_ISSUE':
-        return { 
-          title: 'REPORT AN ISSUE', 
-          sub: 'Manual issue report submitted by operator.' 
-        };
-      case 'MISMATCH': 
-        return { 
-          title: 'MISMATCH DETECTED', 
-          sub: 'Hardware scan does not match manifest entry.' 
-        };
-      case 'NOT_FOUND':
-      default:         
-        return { 
-          title: 'BARCODE NOT FOUND', 
-          sub: 'Barcode tidak ditemukan dalam manifest aktif.' 
-        };
+    if (isTransit) {
+      switch (anomalyType) {
+        case 'MISSING':
+          return {
+            title: 'MISSING ITEM',
+            sub: 'The box is registered on the delivery note, but the physical item is not there/left behind.'
+          };
+        case 'UNEXPECTED':
+          return {
+            title: 'MISMATCH DETECTED',
+            sub: 'Barcode does not match manifest entry.'
+          };
+        case 'MISMATCH':
+          return {
+            title: 'ROUTE MISMATCH',
+            sub: 'Official Epson box, but wrong route/wrong delivery truck.'
+          };
+        case 'EXCESSIVE':
+        case 'OVER':
+          return {
+            title: 'EXCESSIVE AMOUNT',
+            sub: 'Quantity exceed the manifest entry.'
+          };
+        case 'MANUAL_ISSUE':
+          return {
+            title: 'REPORT AN ISSUE',
+            sub: 'If there is any problem on the package.'
+          };
+        default:
+          return {
+            title: 'MISMATCH DETECTED',
+            sub: 'Barcode does not match manifest entry.'
+          };
+      }
+    } else {
+      switch (anomalyType) {
+        case 'MISSING':
+          return {
+            title: 'MISSING PARTS DETECTED',
+            sub: 'Quantity does not match manifest entry.'
+          };
+        case 'EXCESSIVE':
+        case 'OVER':
+          return {
+            title: 'EXCESSIVE AMOUNT',
+            sub: 'Quantity exceed the manifest entry.'
+          };
+        case 'MANUAL_ISSUE':
+          return {
+            title: 'REPORT AN ISSUE',
+            sub: 'If there is any problem on the package.'
+          };
+        case 'MISMATCH':
+          return {
+            title: 'MISMATCH DETECTED',
+            sub: 'Hardware scan does not match manifest entry.'
+          };
+        case 'NOT_FOUND':
+        default:
+          return {
+            title: 'MISMATCH DETECTED',
+            sub: 'Barcode does not match manifest entry.'
+          };
+      }
     }
   };
 
@@ -176,7 +212,7 @@ export default function CaptureEvidence() {
     <div className="flex flex-col min-h-[100dvh] bg-[#F8F9FA] font-sans pb-8">
       {/* HEADER */}
       <header className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
-        <button onClick={() => navigate(`/scanner/${doId}`)} className="text-gray-600">
+        <button onClick={() => navigate(isTransit ? `/transit-scanner/${doId}` : `/scanner/${doId}`)} className="text-gray-600">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
@@ -212,9 +248,9 @@ export default function CaptureEvidence() {
             <div className="flex items-center gap-2 mb-1">
               <div className="text-[#C0392B]">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="2" y="4" width="2" height="16"/><rect x="5" y="4" width="1" height="16"/>
-                  <rect x="7" y="4" width="2" height="16"/><rect x="10" y="4" width="1" height="16"/>
-                  <rect x="12" y="4" width="3" height="16"/>
+                  <rect x="2" y="4" width="2" height="16" /><rect x="5" y="4" width="1" height="16" />
+                  <rect x="7" y="4" width="2" height="16" /><rect x="10" y="4" width="1" height="16" />
+                  <rect x="12" y="4" width="3" height="16" />
                 </svg>
               </div>
               <p className="text-[10px] font-bold text-[#C0392B] tracking-wider">SCANNED INPUT</p>
@@ -238,15 +274,24 @@ export default function CaptureEvidence() {
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-4 text-center">
               <p className="text-xs text-red-300">{cameraError}</p>
             </div>
-          ) : capturedPhoto ? (
-            <img src={capturedPhoto} alt="evidence" className="w-full h-full object-cover" />
           ) : (
             <>
-              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-              <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/60 px-2 py-1">
-                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-white text-[10px] font-bold tracking-wider">LIVE FEED</span>
-              </div>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover ${capturedPhoto ? 'hidden' : ''}`}
+              />
+              {!capturedPhoto && (
+                <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/60 px-2 py-1">
+                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-white text-[10px] font-bold tracking-wider">LIVE FEED</span>
+                </div>
+              )}
+              {capturedPhoto && (
+                <img src={capturedPhoto} alt="evidence" className="w-full h-full object-cover" />
+              )}
             </>
           )}
           <canvas ref={canvasRef} className="hidden" />

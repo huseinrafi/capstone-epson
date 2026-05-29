@@ -25,11 +25,11 @@ return new class extends Migration
 
         DB::table('vendors')->insert([
             'id' => '46e43185-800e-4b5c-9654-b1629177efa9',
-            'code' => 'VND-TEST',
-            'name' => 'Vendor Test',
-            'contact_name' => 'Test Contact',
+            'code' => 'VND-TEST01',
+            'name' => 'Vendor Test01',
+            'contact_name' => 'Test Contact01',
             'contact_phone' => '080000000000',
-            'address' => 'Test Address',
+            'address' => 'Test Address01',
             'created_at' => now(),
             'updated_at' => now(),
         ]);

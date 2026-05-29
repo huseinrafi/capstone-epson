@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate, useParams } from 'react-router-dom';
+import { triggerHaptic } from '../utils/haptics';
 
 const scanStorageKey = (doId) => `recent_scans_${doId}`;
 
@@ -204,6 +205,7 @@ export default function BarcodeScanner() {
         setScanStatus(status);
 
         if (status === 'MATCH') {
+          triggerHaptic(100);
           const partName = payload?.part_name || barcodeText;
           const boxBarcode = payload?.box_barcode || barcodeText;
           const sku = payload?.sku || '';
@@ -217,6 +219,21 @@ export default function BarcodeScanner() {
           }
           setRecentScans(prev => [{
             partName, sku, sn: boxBarcode, status: 'MATCH',
+            time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+          }, ...prev].slice(0, 10));
+
+          setTimeout(() => {
+            setScanStatus(null);
+            scanLock.current = false;
+            try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
+          }, 2000);
+
+        } else if (status === 'DUPLICATE') {
+          triggerHaptic(50);
+          setScanMessage(result.message || 'Box ini sudah pernah di-scan sebelumnya.');
+
+          setRecentScans(prev => [{
+            partName: barcodeText, sku: '', sn: barcodeText, status: 'DUPLICATE',
             time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           }, ...prev].slice(0, 10));
 
@@ -477,6 +494,19 @@ export default function BarcodeScanner() {
             </div>
           </div>
         )}
+        {scanStatus === 'DUPLICATE' && (
+          <div className="bg-white border-2 border-[#F59E0B] p-3 flex items-center gap-4 shadow-sm">
+            <div className="w-12 h-12 rounded-full border-2 border-[#F59E0B] flex items-center justify-center text-[#F59E0B] shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-[#F59E0B] font-bold text-xs tracking-wider">SUDAH DI-SCAN</p>
+              <p className="text-yellow-800 font-semibold text-sm leading-tight break-all">{scanMessage}</p>
+            </div>
+          </div>
+        )}
         {['MISMATCH', 'NOT_FOUND', 'OVER', 'UNEXPECTED', 'ERROR'].includes(scanStatus) && (
           <div className="bg-white border-2 border-[#DC3545] p-3 flex items-center gap-4 shadow-sm">
             <div className="w-12 h-12 rounded-full border-2 border-[#DC3545] flex items-center justify-center text-[#DC3545] shrink-0">
@@ -502,7 +532,7 @@ export default function BarcodeScanner() {
         ) : (
           recentScans.map((scan, index) => (
             <div key={index} className="bg-white p-3 border border-gray-200 flex items-center gap-3 shadow-sm mb-2">
-              <div className={`shrink-0 ${scan.status === 'MATCH' ? 'text-[#002060]' : 'text-[#DC3545]'}`}>
+              <div className={`shrink-0 ${scan.status === 'MATCH' ? 'text-[#002060]' : scan.status === 'DUPLICATE' ? 'text-[#F59E0B]' : 'text-[#DC3545]'}`}>
                 <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="2" y="4" width="2" height="16" /><rect x="5" y="4" width="1" height="16" />
                   <rect x="7" y="4" width="2" height="16" /><rect x="10" y="4" width="1" height="16" />
@@ -517,8 +547,8 @@ export default function BarcodeScanner() {
                   {scan.time && <span className="ml-2 text-gray-400">{scan.time}</span>}
                 </p>
               </div>
-              <span className={`text-sm font-bold shrink-0 ${scan.status === 'MATCH' ? 'text-[#28A745]' : 'text-[#DC3545]'}`}>
-                {scan.status === 'MATCH' ? 'OK' : 'ERR'}
+              <span className={`text-sm font-bold shrink-0 ${scan.status === 'MATCH' ? 'text-[#28A745]' : scan.status === 'DUPLICATE' ? 'text-[#F59E0B]' : 'text-[#DC3545]'}`}>
+                {scan.status === 'MATCH' ? 'OK' : scan.status === 'DUPLICATE' ? 'DUP' : 'ERR'}
               </span>
             </div>
           ))

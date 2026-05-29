@@ -1,143 +1,294 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
+import { triggerHaptic } from '../utils/haptics';
+
+const scanStorageKey = (transitId) => `transit_recent_scans_${transitId}`;
 
 export default function TransitScanner() {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const transitId = id;
 
-  // --- STATE TAHAP 1: SETUP TRANSIT ---
-  const [warehouses, setWarehouses] = useState([]);
-  const [destinationId, setDestinationId] = useState('');
-  const [notes, setNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // --- STATE TAHAP 2: SESI SCANNING ---
-  const [transitId, setTransitId] = useState(null);
+  // State Manajemen Layout & Sinkronisasi Data
   const [scanStatus, setScanStatus] = useState(null);
   const [scanMessage, setScanMessage] = useState('');
-  const [recentScans, setRecentScans] = useState([]);
+  const [progress, setProgress] = useState({ scanned: 0, expected: 0 });
+  const [transitNumber, setTransitNumber] = useState('Memuat...');
+  const [transitData, setTransitData] = useState(null);
+  const [doReady, setDoReady] = useState(false);
+  const [doError, setDoError] = useState(null);
+  const [showFinishPopup, setShowFinishPopup] = useState(false);
+  const [showExitPopup, setShowExitPopup] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
 
-  // --- HARDWARE LOCK ---
+  // State Kontrol Senter
+  const [flashOn, setFlashOn] = useState(false);
+
+  // Sinkronisasi Lapangan lewat Session Storage
+  const [recentScans, setRecentScans] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(scanStorageKey(id));
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
   const html5QrCode = useRef(null);
   const scanLock = useRef(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const containerRef = useRef(null);
 
-  // FETCH DAFTAR GUDANG SAAT MOUNT
   useEffect(() => {
-    let isMounted = true;
-    const fetchWarehouses = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/warehouses`, {
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        const result = await res.json();
-        if (res.ok && result.success && isMounted) {
-          // Asumsi struktur data pagination laravel (result.data.data) atau array flat (result.data)
-          setWarehouses(result.data.data || result.data || []);
-        }
-      } catch (err) {
-        console.error("Gagal memuat gudang:", err);
-      }
-    };
-    fetchWarehouses();
-    return () => { isMounted = false; };
-  }, []);
+    try {
+      sessionStorage.setItem(scanStorageKey(transitId), JSON.stringify(recentScans));
+    } catch (e) { console.error(e); }
+  }, [recentScans, transitId]);
 
-  // AKSI: TOMBOL START TRANSIT BATCH
-  const handleStartTransit = async () => {
-    if (!destinationId) {
-      alert("Silakan pilih gudang tujuan terlebih dahulu.");
-      return;
-    }
-
-    setIsSubmitting(true);
+  // ─── AMBIL DETAIL DOKUMEN TRANSIT (DARI BACKEND ASLI) ──────────────────────
+  const fetchTransitDetail = useCallback(async (isMounted = true) => {
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/transits`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          destination_warehouse_id: destinationId,
-          notes: notes
-        })
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/transits/${transitId}`, {
+        headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
       });
-
       const result = await res.json();
-      
-      if (res.ok && result.success) {
-        setTransitId(result.data.id); // Pindah ke layar kamera
-      } else {
-        alert(result.message || "Gagal membuat surat jalan internal.");
+
+      if (!res.ok || !result.success) {
+        if (isMounted) setDoError(result.message || 'Gagal memuat data transit.');
+        return;
+      }
+
+      const tData = result.data;
+      if (isMounted) {
+        setTransitData(tData);
+        setTransitNumber(tData.transit_number || transitId);
+        
+        // Pembedaan Variabel Progress: INIT membaca sent_total, IN_TRANSIT / INVESTIGATION_REQUIRED membaca received_total
+        const isCheckingIn = tData.status === 'IN_TRANSIT' || tData.status === 'INVESTIGATION_REQUIRED';
+        setProgress({
+          scanned: isCheckingIn ? (tData.received_total ?? 0) : (tData.sent_total ?? 0),
+          expected: tData.expected_total ?? 0
+        });
+
+        // Validasi Status Pengamanan Alur
+        if (tData.status === 'TRANSIT_INIT' || tData.status === 'IN_TRANSIT' || tData.status === 'INVESTIGATION_REQUIRED') {
+          setDoReady(true);
+        } else {
+          setDoError(`Akses ditolak. Dokumen transit sudah berstatus: ${tData.status}`);
+        }
       }
     } catch (err) {
-      alert("Koneksi server gagal.");
-    } finally {
-      setIsSubmitting(false);
+      console.error(err);
+      if (isMounted) setDoError('Koneksi ke server terputus.');
+    }
+  }, [transitId, navigate]);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchTransitDetail(isMounted);
+    return () => { isMounted = false; };
+  }, [fetchTransitDetail]);
+
+  // ─── INTERSEPT HARDWARE BACK BUTTON ANDROID ────────────────────────────────
+  useEffect(() => {
+    if (!doReady) return;
+
+    window.history.pushState(null, null, window.location.pathname);
+
+    const handleAndroidBackButton = (e) => {
+      e.preventDefault();
+      window.history.pushState(null, null, window.location.pathname);
+      setShowExitPopup(true);
+    };
+
+    window.addEventListener('popstate', handleAndroidBackButton);
+    return () => { window.removeEventListener('popstate', handleAndroidBackButton); };
+  }, [doReady]);
+
+  // ─── KAMERA KONTROL & SENTER NATIVE OVERRIDE ───────────────────────────────
+  const stopCamera = useCallback(() => {
+    if (html5QrCode.current) {
+      try {
+        html5QrCode.current.stop().then(() => html5QrCode.current.clear()).catch(() => { });
+      } catch (e) { console.error(e); }
+      html5QrCode.current = null;
+    }
+    setFlashOn(false);
+  }, []);
+
+  const toggleFlashlight = async () => {
+    try {
+      const nextFlashState = !flashOn;
+      const videoElem = containerRef.current?.querySelector('video');
+
+      if (videoElem && videoElem.srcObject) {
+        const track = videoElem.srcObject.getVideoTracks()[0];
+        const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+
+        if (capabilities.torch || 'torch' in capabilities) {
+          await track.applyConstraints({ advanced: [{ torch: nextFlashState }] });
+          setFlashOn(nextFlashState);
+          return;
+        }
+      }
+
+      if (html5QrCode.current && html5QrCode.current.isScanning) {
+        await html5QrCode.current.applyVideoConstraints({ advanced: [{ torch: nextFlashState }] });
+        setFlashOn(nextFlashState);
+      }
+    } catch (err) {
+      console.warn('Hardware torch tidak merespon:', err);
+      alert('Senter gagal diaktifkan. Pastikan izin kamera aktif.');
     }
   };
 
-  // AKSI: PROSES BARCODE KE API TRANSIT
-  const processBarcode = useCallback(async (barcodeText) => {
-    if (!transitId) return;
-    setIsProcessing(true);
+  // Tombol Manual Issue (Floating Button Merah)
+  const handleReportIssue = async () => {
+    stopCamera();
+    navigate(`/capture-evidence/${transitId}`, {
+      state: {
+        anomalyId: `manual-${transitId}`,
+        anomalyType: 'MANUAL_ISSUE',
+        doNumber: transitNumber,
+        scannedBarcode: 'MANUAL TRANSIT RECONCILIATION EXCEPTION',
+        isTransit: true,
+        originWarehouse: transitData?.originWarehouse?.name || transitData?.origin_warehouse?.name,
+        destWarehouse: transitData?.destinationWarehouse?.name || transitData?.destination_warehouse?.name || transitData?.dest_warehouse?.name,
+        evidenceUploadUrl: `/api/v1/anomalies/manual-${transitId}/evidences`
+      }
+    });
+  };
 
+  // ─── LOGIKA PEMINDAIAN BARCODE BERDASARKAN STATUS DOKUMEN BACKEND ─────────
+  const processBarcode = useCallback(async (barcodeText) => {
+    if (!transitData) return;
+    
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/transits/${transitId}/scans`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          internal_barcode: barcodeText,
-          device_id: 'mobile-transit-01'
-        })
-      });
+      const isCheckingIn = transitData.status === 'IN_TRANSIT' || transitData.status === 'INVESTIGATION_REQUIRED';
 
+      // SELEKSI ENDPOINT ASLI: INIT lari ke scan-out, IN_TRANSIT lari ke scan-in
+      const scanEndpoint = isCheckingIn
+        ? `${import.meta.env.VITE_API_URL}/transits/${transitId}/scan-in`
+        : `${import.meta.env.VITE_API_URL}/transits/${transitId}/scan-out`;
+
+      const response = await fetch(scanEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ barcode: barcodeText }) // Mengirimkan key parameter "barcode"
+      });
+      
       const result = await response.json();
 
       if (response.ok && result.success) {
+        triggerHaptic(100);
         setScanStatus('MATCH');
-        const partName = result.data.item_name || barcodeText;
-        setScanMessage(`Berhasil memindai: ${partName}`);
-        setRecentScans(prev => [{ barcode: barcodeText, label: partName, status: 'MATCH' }, ...prev].slice(0, 3));
+        setScanMessage(barcodeText);
+
+        // Langsung paksa re-fetch detail ke database teman agar hitungan akumulasi akurat
+        const freshRes = await fetch(`${import.meta.env.VITE_API_URL}/transits/${transitId}`, {
+          headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
+        });
+        const freshResult = await freshRes.json();
+        
+        if (freshRes.ok && freshResult.success) {
+          const updatedTransit = freshResult.data;
+          setProgress({
+            scanned: isCheckingIn ? (updatedTransit.received_total ?? 0) : (updatedTransit.sent_total ?? 0),
+            expected: updatedTransit.expected_total ?? 0
+          });
+        }
+
+        setRecentScans(prev => [{
+          partName: barcodeText, sku: 'INTERNAL PART', sn: barcodeText, status: 'MATCH',
+          time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        }, ...prev].slice(0, 10));
+
+        setTimeout(() => {
+          setScanStatus(null);
+          scanLock.current = false;
+          try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
+        }, 2000);
+
       } else {
-        setScanStatus('MISMATCH');
-        setScanMessage(result.message || 'Barang tidak dapat ditransitkan.');
+        const anomalyErrors = result.errors || {};
+        const isDuplicateScan = anomalyErrors.duplicate_scan === true;
+
+        if (isDuplicateScan) {
+          // Duplikat scan-out: bukan anomali, hanya peringatan — kamera tetap aktif
+          setScanStatus('DUPLICATE');
+          setScanMessage(result.message || 'Barang ini sudah pernah di-scan. Lanjut ke barang berikutnya.');
+          setRecentScans(prev => [{
+            partName: barcodeText, sku: '', sn: barcodeText, status: 'DUPLICATE',
+            time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+          }, ...prev].slice(0, 10));
+          // Buka kunci kamera setelah 2 detik, tidak navigate ke evidence
+          setTimeout(() => {
+            setScanStatus(null);
+            scanLock.current = false;
+            try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
+          }, 2000);
+          return;
+        }
+
+        // Anomali sungguhan (OVER scan-in, MISMATCH, UNEXPECTED, NOT_FOUND)
+        // → arahkan ke capture evidence dengan label yang benar dari backend
+        const anomalyData = result.data?.anomaly || result.anomaly;
+        const resolvedAnomalyId = anomalyErrors.anomaly_id || anomalyData?.id || result.data?.anomaly_id;
+        // Gunakan label dari backend, jangan fallback ke 'OVER' — biarkan null jika tidak ada
+        const resolvedAnomalyType = anomalyErrors.anomaly_type || result.data?.anomaly_type || result.anomaly_type || anomalyData?.discrepancy_type || null;
+        const evidenceUrl = anomalyErrors.evidence_upload_url || result.data?.evidence_upload_url;
+
+        setRecentScans(prev => [{
+          partName: barcodeText, sku: '', sn: '', status: resolvedAnomalyType || 'ERROR',
+          time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        }, ...prev].slice(0, 10));
+
+        setScanMessage(result.message || 'Anomali terdeteksi');
+        setScanStatus(resolvedAnomalyType || 'ERROR');
+
+        if (resolvedAnomalyId && evidenceUrl) {
+          // Ada anomali resmi yang perlu evidence → navigate ke capture evidence
+          setTimeout(() => {
+            stopCamera();
+            navigate(`/capture-evidence/${transitId}`, {
+              state: {
+                anomalyId: resolvedAnomalyId,
+                anomalyType: resolvedAnomalyType,
+                doNumber: transitNumber,
+                scannedBarcode: barcodeText,
+                isTransit: true,
+                originWarehouse: transitData?.originWarehouse?.name || transitData?.origin_warehouse?.name,
+                destWarehouse: transitData?.destinationWarehouse?.name || transitData?.destination_warehouse?.name || transitData?.dest_warehouse?.name,
+                evidenceUploadUrl: evidenceUrl,
+              }
+            });
+          }, 1500);
+        } else {
+          // Error tanpa anomaly_id (misal barcode tidak ada di surat jalan) → tampilkan pesan, kamera aktif lagi
+          setTimeout(() => {
+            setScanStatus(null);
+            scanLock.current = false;
+            try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
+          }, 2000);
+        }
       }
     } catch (err) {
+      console.error(err);
       setScanStatus('ERROR');
-      setScanMessage('Koneksi server terputus.');
-    } finally {
+      setScanMessage('Koneksi server gagal');
       setTimeout(() => {
         setScanStatus(null);
         scanLock.current = false;
-        setIsProcessing(false);
-        try {
-          if (html5QrCode.current) {
-            html5QrCode.current.resume();
-          }
-        } catch (e) {}
+        try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
       }, 2000);
     }
-  }, [transitId]);
+  }, [transitId, transitData, transitNumber, navigate, stopCamera, fetchTransitDetail]);
 
-  // SIKLUS HIDUP KAMERA
+  // Inisialisasi Lifecycle Kamera HTML5QRCODE
   useEffect(() => {
-    if (!transitId) return;
-
+    if (!doReady) return;
     let isMounted = true;
-    html5QrCode.current = new Html5Qrcode('transit-reader');
+    html5QrCode.current = new Html5Qrcode('reader');
 
     const startCamera = async () => {
       try {
@@ -147,140 +298,339 @@ export default function TransitScanner() {
           async (decodedText) => {
             if (!isMounted || scanLock.current) return;
             scanLock.current = true;
-            
-            try {
-              if (html5QrCode.current?.isScanning) html5QrCode.current.pause(true);
-            } catch (e) {}
-            
-            const sanitizedBarcode = decodedText.trim().toUpperCase();
-            await processBarcode(sanitizedBarcode);
+            try { html5QrCode.current?.isScanning && html5QrCode.current.pause(true); } catch (e) { console.error(e); }
+            await processBarcode(decodedText.trim().toUpperCase());
           },
-          () => {} 
+          () => { }
         );
-      } catch (err) {
-        console.error('Kamera gagal menyala:', err);
-      }
+      } catch (err) { console.error('Kamera gagal:', err); }
     };
 
     const timer = setTimeout(startCamera, 300);
-
     return () => {
       isMounted = false;
       clearTimeout(timer);
-      if (html5QrCode.current) {
-        try {
-          html5QrCode.current.stop().then(() => {
-            html5QrCode.current.clear();
-          }).catch(() => {});
-        } catch (e) {}
-      }
+      stopCamera();
     };
-  }, [transitId, processBarcode]);
+  }, [doReady, processBarcode, stopCamera]);
+
+  // ─── SELEKSI LOGIKA TOMBOL SUBMIT DI BAWAH (DEPART VS COMPLETE) ───────────
+  const handleFinishConfirm = async () => {
+    setIsFinishing(true);
+    try {
+      const token = localStorage.getItem('token');
+      const isCheckingIn = transitData.status === 'IN_TRANSIT' || transitData.status === 'INVESTIGATION_REQUIRED';
+
+      // SELEKSI ENDPOINT SUBMIT: INIT lari ke depart, IN_TRANSIT lari ke complete
+      const actionEndpoint = isCheckingIn
+        ? `${import.meta.env.VITE_API_URL}/transits/${transitId}/complete`
+        : `${import.meta.env.VITE_API_URL}/transits/${transitId}/depart`;
+
+      const response = await fetch(actionEndpoint, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
+      });
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        sessionStorage.removeItem(scanStorageKey(transitId));
+        stopCamera();
+
+        // Evaluasi Apakah Muncul Anomali Kurang (MISSING) setelah submit akhir teman Anda
+        if (result.data?.status === 'INVESTIGATION_REQUIRED' || result.status === 'INVESTIGATION_REQUIRED' || result.data?.requires_evidence) {
+          const anomalyObj = result.data?.anomaly || result.anomaly;
+          navigate(`/capture-evidence/${transitId}`, {
+            state: {
+              anomalyId: anomalyObj?.id || result.data?.anomaly_id,
+              anomalyType: 'MISSING',
+              doNumber: transitNumber,
+              scannedBarcode: 'PART QUANTITY MISSING',
+              isTransit: true,
+              originWarehouse: transitData?.originWarehouse?.name || transitData?.origin_warehouse?.name,
+              destWarehouse: transitData?.destinationWarehouse?.name || transitData?.destination_warehouse?.name || transitData?.dest_warehouse?.name,
+              evidenceUploadUrl: result.data?.evidence_upload_url || `/api/v1/anomalies/${anomalyObj?.id}/evidences`,
+            }
+          });
+        } else {
+          // Jika lulus normal, buang langsung ke antrean transit utama
+          navigate('/transit');
+        }
+      } else {
+        alert(result.message || 'Gagal mengeksekusi transisi dokumen.');
+        setShowFinishPopup(false);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Koneksi server gagal.');
+      setShowFinishPopup(false);
+    } finally {
+      setIsFinishing(false);
+    }
+  };
+
+  const progressPercent = progress.expected > 0 ? Math.min((progress.scanned / progress.expected) * 100, 100) : 0;
+
+  if (doError) {
+    return (
+      <div className="flex flex-col min-h-[100dvh] bg-[#F8F9FA] items-center justify-center p-8 gap-4">
+        <div className="text-red-500 text-5xl">⚠️</div>
+        <p className="text-center text-gray-800 font-semibold">{doError}</p>
+        <button onClick={() => navigate('/transit')} className="bg-[#002060] text-white px-6 py-3 font-bold rounded shadow">
+          Kembali ke Antrian
+        </button>
+      </div>
+    );
+  }
+
+  if (!doReady) {
+    return (
+      <div className="flex flex-col min-h-[100dvh] bg-[#F8F9FA] items-center justify-center gap-4">
+        <div className="w-10 h-10 border-4 border-[#002060] border-t-transparent rounded-full animate-spin" />
+        <p className="text-[#002060] font-bold tracking-wide animate-pulse">Menyiapkan Sesi SVSB Transit...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-[100dvh] bg-[#F8F9FA] font-sans">
-      {/* HEADER (Sesuai Gambar) */}
-      <header className="flex items-center justify-between p-4 bg-white shadow-sm z-10">
-        <button onClick={() => navigate(-1)} className="text-gray-600 hover:bg-gray-100 p-1 rounded">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+      
+      {/* ─── HEADER BAR (COPAS INBOUND + SENTER) ──────────────────────────────── */}
+      <header className="flex items-center justify-between p-4 bg-white border-b border-gray-200">
+        <button onClick={() => setShowExitPopup(true)} className="text-gray-600">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
         </button>
-        <h1 className="text-[#002060] font-bold tracking-wide text-base">EPSON LOGISTICS</h1>
-        {/* Avatar Placeholder Sesuai Gambar */}
-        <div className="w-8 h-8 rounded-full bg-gray-200 border border-gray-300 flex items-center justify-center overflow-hidden">
-          <svg className="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg>
-        </div>
+        <h1 className="text-[#002060] font-bold tracking-wide uppercase text-sm">
+          TRANSIT - {(transitData?.status === 'IN_TRANSIT' || transitData?.status === 'INVESTIGATION_REQUIRED') ? 'SCAN IN' : 'SCAN OUT'}
+        </h1>
+        <button
+          onClick={toggleFlashlight}
+          className={`w-9 h-9 rounded-full flex items-center justify-center font-bold border shadow-sm active:scale-95 transition-all text-base ${
+            flashOn ? 'bg-yellow-400 text-gray-900 border-yellow-500' : 'bg-gray-100 text-gray-500 border-gray-300'
+          }`}
+          title="Toggle Flashlight"
+        >
+          🔦
+        </button>
       </header>
 
-      <div className="p-4 flex-1 flex flex-col">
-        {!transitId ? (
-          /* ========================================================
-             TAHAP 1: SETUP TRANSIT (PIXEL PERFECT SESUAI GAMBAR)
-             ======================================================== */
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 flex-1">
-            <h2 className="text-[22px] font-bold text-[#002060] mb-1">INTERNAL TRANSIT SCAN</h2>
-            <p className="text-[11px] font-bold text-gray-400 mb-8 tracking-wider">STATION: TRANSIT-OUT-1</p>
-
-            <div className="mb-6">
-              <label className="block text-[13px] font-bold text-gray-800 mb-2">Destination Warehouse</label>
-              <div className="relative">
-                <select 
-                  value={destinationId} 
-                  onChange={(e) => setDestinationId(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md p-3.5 text-sm text-gray-700 font-medium appearance-none focus:outline-none focus:border-[#002060] focus:ring-1 focus:ring-[#002060]"
-                >
-                  <option value="" disabled>Select Destination ID</option>
-                  {warehouses.map(wh => (
-                    <option key={wh.id} value={wh.id}>{wh.name} ({wh.code})</option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
-                  <svg className="fill-current h-4 w-4" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-                </div>
-              </div>
+      {/* ─── TRANSIT INFO MUTASI CARD ────────────────────────────────────────── */}
+      <div className="p-4">
+        <div className="bg-white border-2 border-[#002060] p-4 shadow-sm">
+          <div className="flex justify-between items-end mb-2">
+            <div>
+              <p className="text-[10px] text-gray-500 font-bold tracking-wider">TRANSIT NUMBER</p>
+              <p className="text-lg font-bold text-[#002060]">{transitNumber}</p>
             </div>
-
-            <div className="mb-8">
-              <label className="block text-[13px] font-bold text-gray-800 mb-2">Optional Notes</label>
-              <textarea 
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Tambahkan catatan jika perlu..."
-                className="w-full border border-gray-300 rounded-md p-3.5 text-sm text-gray-700 h-28 resize-none focus:outline-none focus:border-[#002060] focus:ring-1 focus:ring-[#002060]"
-              ></textarea>
+            <div className="text-right">
+              <p className="text-[10px] text-gray-500 font-bold tracking-wider">
+                {transitData?.status === 'IN_TRANSIT' ? 'RECEIVED' : 'LOADED'}
+              </p>
+              <p className="text-lg font-bold text-gray-700">
+                <span className="text-[#002060]">{progress.scanned}</span> / {progress.expected}
+              </p>
             </div>
-
-            <button 
-              onClick={handleStartTransit}
-              disabled={isSubmitting}
-              className={`w-full bg-[#002060] text-white text-sm font-bold py-4 rounded-md shadow-md hover:bg-[#001746] transition-colors ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
-            >
-              {isSubmitting ? 'Processing...' : 'Start Transit Batch'}
-            </button>
           </div>
-        ) : (
-          /* ========================================================
-             TAHAP 2: KAMERA & HASIL (FALLBACK DESIGN)
-             ======================================================== */
-          <div className="flex flex-col h-full bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex-1 relative pb-20">
-            <h2 className="text-lg font-bold text-[#002060] mb-1">SCANNING IN PROGRESS</h2>
-            <p className="text-[11px] font-bold text-gray-400 mb-4 tracking-wider">TRANSIT ID: {transitId.split('-')[0].toUpperCase()}</p>
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-full bg-[#002060] transition-all duration-500" style={{ width: `${progressPercent}%` }} />
+          </div>
+        </div>
+      </div>
 
-            {/* KAMERA */}
-            <div className="w-full aspect-square bg-gray-900 border-4 border-[#002060] relative overflow-hidden flex items-center justify-center rounded-md mb-4">
-              <div id="transit-reader" className="w-full h-full absolute inset-0"></div>
-              <div className="absolute inset-6 border-2 border-dashed border-white/40 z-10 pointer-events-none">
-                <div className={`w-full h-0.5 bg-blue-500 absolute top-1/2 shadow-[0_0_8px_2px_rgba(59,130,246,0.8)] ${isProcessing ? 'hidden' : 'animate-pulse'}`} />
-              </div>
+      {/* ─── KAMERA AREA ─────────────────────────────────────────────────────── */}
+      <div className="px-4">
+        <div className="w-full aspect-square bg-black border-4 border-[#002060] relative overflow-hidden">
+          <div id="reader" ref={containerRef} className="absolute inset-0 z-0" />
+          <div className="absolute inset-8 border-2 border-dashed border-white/40 z-10 pointer-events-none">
+            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#1A4B9F]" />
+            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#1A4B9F]" />
+            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#1A4B9F]" />
+            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#1A4B9F]" />
+            <div className="w-full h-0.5 bg-blue-400 absolute top-1/2 shadow-[0_0_8px_2px_rgba(59,130,246,0.7)] animate-pulse" />
+          </div>
+          <div className="absolute bottom-0 left-0 w-full text-center z-10 bg-black/50 py-1">
+            <p className="text-white text-[10px] tracking-widest uppercase">ALIGN INTERNAL BARCODE WITHIN FRAME</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── CARDS FEEDBACK VISUAL ───────────────────────────────────────────── */}
+      <div className="px-4 mt-3 min-h-[4.5rem]">
+        {scanStatus === 'MATCH' && (
+          <div className="bg-white border-2 border-[#28A745] p-3 flex items-center gap-4 shadow-sm">
+            <div className="w-12 h-12 rounded-full border-2 border-[#28A745] flex items-center justify-center text-[#28A745] shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
             </div>
-
-            {/* ALERT HASIL */}
-            <div className="min-h-[4rem] mb-4">
-              {scanStatus === 'MATCH' && (
-                <div className="bg-[#E8F5E9] border-l-4 border-[#28A745] p-3 rounded shadow-sm">
-                  <p className="text-[#28A745] font-bold text-xs tracking-wide">SUCCESS</p>
-                  <p className="text-gray-800 font-semibold text-sm">{scanMessage}</p>
-                </div>
-              )}
-              {(scanStatus === 'MISMATCH' || scanStatus === 'ERROR') && (
-                <div className="bg-[#F8D7DA] border-l-4 border-[#DC3545] p-3 rounded shadow-sm">
-                  <p className="text-[#DC3545] font-bold text-xs tracking-wide">{scanStatus}</p>
-                  <p className="text-red-900 font-semibold text-sm">{scanMessage}</p>
-                </div>
-              )}
+            <div>
+              <p className="text-[#28A745] font-bold text-xs tracking-wider">BOX VERIFIED</p>
+              <p className="text-[#002060] font-bold text-base leading-tight break-all">{scanMessage}</p>
             </div>
-
-            {/* ACTION BUTTON (BOTTOM FIXED) */}
-            <div className="absolute bottom-4 left-4 right-4">
-              <button 
-                onClick={() => navigate('/dashboard')}
-                className="w-full bg-[#002060] text-white font-bold py-3.5 rounded-md shadow hover:bg-blue-900 transition"
-              >
-                Finish Batch
-              </button>
+          </div>
+        )}
+        {scanStatus === 'DUPLICATE' && (
+          <div className="bg-white border-2 border-[#F59E0B] p-3 flex items-center gap-4 shadow-sm">
+            <div className="w-12 h-12 rounded-full border-2 border-[#F59E0B] flex items-center justify-center text-[#F59E0B] shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-[#F59E0B] font-bold text-xs tracking-wider">SUDAH DI-SCAN</p>
+              <p className="text-yellow-800 font-semibold text-sm leading-tight break-all">{scanMessage}</p>
+            </div>
+          </div>
+        )}
+        {['MISMATCH', 'NOT_FOUND', 'OVER', 'UNEXPECTED', 'ERROR'].includes(scanStatus) && (
+          <div className="bg-white border-2 border-[#DC3545] p-3 flex items-center gap-4 shadow-sm">
+            <div className="w-12 h-12 rounded-full border-2 border-[#DC3545] flex items-center justify-center text-[#DC3545] shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-[#DC3545] font-bold text-xs tracking-wider">ANOMALY DETECTED</p>
+              <p className="text-red-900 font-semibold text-sm leading-tight break-all">{scanMessage}</p>
             </div>
           </div>
         )}
       </div>
+
+      {/* ─── LIVE HISTORY LIST PINDAIAN ──────────────────────────────────────── */}
+      <div className="flex-1 px-4 mt-3 overflow-y-auto pb-24">
+        <h3 className="text-[10px] text-gray-500 font-bold tracking-wider mb-2">
+          RECENT SCANS {recentScans.length > 0 && <span className="text-[#002060]">({recentScans.length})</span>}
+        </h3>
+        {recentScans.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">Belum ada komponen boks yang di-scan.</p>
+        ) : (
+          recentScans.map((scan, index) => (
+            <div key={index} className="bg-white p-3 border border-gray-200 flex items-center gap-3 shadow-sm mb-2">
+              <div className={`shrink-0 ${scan.status === 'MATCH' ? 'text-[#002060]' : scan.status === 'DUPLICATE' ? 'text-[#F59E0B]' : 'text-[#DC3545]'}`}>
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="2" y="4" width="2" height="16" /><rect x="5" y="4" width="1" height="16" />
+                  <rect x="7" y="4" width="2" height="16" /><rect x="10" y="4" width="1" height="16" />
+                  <rect x="12" y="4" width="3" height="16" /><rect x="16" y="4" width="1" height="16" />
+                  <rect x="18" y="4" width="2" height="16" /><rect x="21" y="4" width="1" height="16" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-800 truncate">{scan.partName}</p>
+                <p className="text-xs text-gray-500">
+                  {scan.sn ? `ID: ${scan.sn}` : '—'}
+                  {scan.time && <span className="ml-2 text-gray-400">{scan.time}</span>}
+                </p>
+              </div>
+              <span className={`text-sm font-bold shrink-0 ${scan.status === 'MATCH' ? 'text-[#28A745]' : 'text-[#DC3545]'}`}>
+                {scan.status === 'MATCH' ? 'OK' : 'ERR'}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* ─── DYNAMIC SUBMIT BOTTOM BAR (DEPART VS COMPLETE) ─────────────────── */}
+      <div className="fixed bottom-0 w-full p-4 bg-white border-t border-gray-200 z-50">
+        <button onClick={() => setShowFinishPopup(true)}
+          className="w-full bg-[#002060] text-white py-3.5 font-bold tracking-widest text-xs uppercase flex justify-center items-center gap-2 hover:bg-blue-900 transition-colors shadow-sm">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+          </svg>
+          {(transitData?.status === 'IN_TRANSIT' || transitData?.status === 'INVESTIGATION_REQUIRED') ? 'Finish Scan & Complete' : 'Finish Scan & Depart'}
+        </button>
+      </div>
+
+      {/* FLOATING EMERGENCY BUTTON */}
+      <button onClick={handleReportIssue} className="fixed bottom-24 right-5 z-[60] w-14 h-14 rounded-full bg-red-600 text-white shadow-xl active:scale-95 transition flex items-center justify-center" title="Report Issue">
+        <span className="text-2xl">⚠️</span>
+      </button>
+
+      {/* ─── POPUP MODAL A: SUBMIT FINALISASI ─────────────────────────────────── */}
+      {showFinishPopup && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-end justify-center">
+          <div className="bg-white w-full max-w-md shadow-2xl">
+            <div className="px-6 pt-6 pb-3 flex items-center gap-3 border-b border-gray-100">
+              <div className="w-8 h-8 bg-red-100 rounded flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-[#DC3545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">
+                {(transitData?.status === 'IN_TRANSIT' || transitData?.status === 'INVESTIGATION_REQUIRED') ? 'Complete Transit?' : 'Confirm Departure?'}
+              </h2>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-gray-600 text-sm leading-relaxed">
+                {(transitData?.status === 'IN_TRANSIT' || transitData?.status === 'INVESTIGATION_REQUIRED') 
+                  ? 'Apakah Anda yakin ingin menyelesaikan dokumen ini? Hak kepemilikan barang akan resmi masuk ke gudang tujuan.' 
+                  : 'Apakah Anda yakin ingin memberangkatkan troli muat? Status dokumen akan berubah menjadi IN_TRANSIT.'}
+              </p>
+            </div>
+            <div className="px-6 pb-8 flex flex-col gap-3">
+              <button onClick={handleFinishConfirm} disabled={isFinishing}
+                className="w-full bg-[#002060] text-white py-4 font-bold tracking-widest text-sm hover:bg-blue-900 transition-colors disabled:opacity-60">
+                {isFinishing ? 'MEMPROSES TRANSAKSI...' : 'YES, PROCESS TRANSIT'}
+              </button>
+              <button onClick={() => setShowFinishPopup(false)}
+                className="w-full bg-white border border-gray-300 text-gray-700 py-3 font-bold tracking-widest text-sm hover:bg-gray-50 transition-colors">
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── POPUP MODAL B: LOGOUT / EXIT SEMENTARA ──────────────────────────── */}
+      {showExitPopup && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-end justify-center">
+          <div className="bg-white w-full max-w-md shadow-2xl">
+            <div className="px-6 pt-6 pb-3 flex items-center gap-3 border-b border-gray-100">
+              <div className="w-8 h-8 bg-red-100 rounded flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-[#DC3545]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">Exit Scan?</h2>
+            </div>
+            <div className="px-6 py-5">
+              <div className="border border-dashed border-red-300 bg-red-50 rounded p-4 mb-4">
+                <p className="text-gray-800 text-sm leading-relaxed">
+                  Sesi pemindaian belum ditutup penuh <span className="font-bold text-[#002060]">({progress.scanned}/{progress.expected})</span>. 
+                  Progress tersimpan otomatis — kurir bisa melanjutkan kapan saja dari antrean.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#002060]" style={{ width: `${progressPercent}%` }} />
+                </div>
+                <span className="text-xs font-bold text-gray-600 shrink-0 whitespace-nowrap">
+                  {Math.round(progressPercent)}% DONE
+                </span>
+              </div>
+            </div>
+            <div className="px-6 pb-8 flex flex-col gap-3">
+              <button onClick={() => setShowExitPopup(false)}
+                className="w-full bg-[#002060] text-white py-4 font-bold tracking-widest text-sm flex justify-center items-center gap-2 hover:bg-blue-900 transition-colors">
+                STAY AND SCAN
+              </button>
+              <button 
+                onClick={() => { 
+                  stopCamera(); 
+                  window.history.go(-1);
+                  setTimeout(() => navigate('/transit'), 50);
+                }}
+                className="w-full bg-white border-2 border-[#002060] text-[#002060] py-3 font-bold tracking-widest text-sm hover:bg-blue-50 transition-colors"
+              >
+                EXIT TO QUEUE
+              </button>
+            </div>
+            <p className="text-center text-[10px] text-gray-400 pb-4 tracking-wider">EPSON SVSB SYSTEM • SECURITY LOGISTICS</p>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

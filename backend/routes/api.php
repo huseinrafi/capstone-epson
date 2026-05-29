@@ -89,5 +89,13 @@ Route::prefix('v1')->group(function () {
             Route::patch('/user-management/users/{user}/password', [UserManagementController::class, 'resetPassword']);
             Route::delete('/user-management/users/{user}', [UserManagementController::class, 'destroy']);
         });
+
+        Route::middleware('role:manajer')->group(function () {
+            Route::get('/users', [UserManagementController::class, 'index']);
+            Route::get('/users/roles', [UserManagementController::class, 'roles']);
+            Route::post('/users', [UserManagementController::class, 'store']);
+            Route::patch('/users/{user}/role', [UserManagementController::class, 'updateRole']);
+            Route::patch('/users/{user}/toggle-status', [UserManagementController::class, 'toggleStatus']);
+        });
     });
 });

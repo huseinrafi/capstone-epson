@@ -31,10 +31,10 @@ return new class extends Migration
 
         DB::table('users')->insert([
             'id' => (string) Str::uuid(),
-            'role_id' => RoleConstant::SUPERVISOR_ID,
-            'name' => 'User Operator',
-            'username' => 'operator01',
-            'email' => 'operator@example.com',
+            'role_id' => RoleConstant::MANAJER_ID,
+            'name' => 'User Manajer',
+            'username' => 'manajer01',
+            'email' => 'manajer@example.com',
             'email_verified_at' => now(),
             'password' => Hash::make('password123'),
             'is_active' => true,
