@@ -12,10 +12,6 @@ class ItemController extends Controller
 {
     use ApiResponse;
 
-    /**
-     * Display a listing of the resource.
-     * Akses terbuka untuk admin_gudang, supervisor, manajer — tanpa filter user_id.
-     */
     public function index(Request $request): JsonResponse
     {
         $items = InternalItem::query()
