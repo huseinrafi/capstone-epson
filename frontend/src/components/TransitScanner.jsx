@@ -210,37 +210,67 @@ export default function TransitScanner() {
         }, 2000);
 
       } else {
-        // Penanganan Deteksi Anomali Lapangan (OVER / MISMATCH / UNEXPECTED)
         const anomalyErrors = result.errors || {};
+        const isDuplicateScan = anomalyErrors.duplicate_scan === true;
+
+        if (isDuplicateScan) {
+          // Duplikat scan-out: bukan anomali, hanya peringatan — kamera tetap aktif
+          setScanStatus('DUPLICATE');
+          setScanMessage(result.message || 'Barang ini sudah pernah di-scan. Lanjut ke barang berikutnya.');
+          setRecentScans(prev => [{
+            partName: barcodeText, sku: '', sn: barcodeText, status: 'DUPLICATE',
+            time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+          }, ...prev].slice(0, 10));
+          // Buka kunci kamera setelah 2 detik, tidak navigate ke evidence
+          setTimeout(() => {
+            setScanStatus(null);
+            scanLock.current = false;
+            try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
+          }, 2000);
+          return;
+        }
+
+        // Anomali sungguhan (OVER scan-in, MISMATCH, UNEXPECTED, NOT_FOUND)
+        // → arahkan ke capture evidence dengan label yang benar dari backend
         const anomalyData = result.data?.anomaly || result.anomaly;
-        
-        const resolvedAnomalyId = anomalyErrors.anomaly_id || anomalyData?.id || result.data?.anomaly_id || result.anomaly_id;
-        const resolvedAnomalyType = anomalyErrors.anomaly_type || result.data?.anomaly_type || result.anomaly_type || anomalyData?.discrepancy_type || 'OVER';
-        const evidenceUrl = anomalyErrors.evidence_upload_url || result.data?.evidence_upload_url || result.evidence_upload_url;
+        const resolvedAnomalyId = anomalyErrors.anomaly_id || anomalyData?.id || result.data?.anomaly_id;
+        // Gunakan label dari backend, jangan fallback ke 'OVER' — biarkan null jika tidak ada
+        const resolvedAnomalyType = anomalyErrors.anomaly_type || result.data?.anomaly_type || result.anomaly_type || anomalyData?.discrepancy_type || null;
+        const evidenceUrl = anomalyErrors.evidence_upload_url || result.data?.evidence_upload_url;
 
         setRecentScans(prev => [{
-          partName: barcodeText, sku: '', sn: '', status: resolvedAnomalyType,
+          partName: barcodeText, sku: '', sn: '', status: resolvedAnomalyType || 'ERROR',
           time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
         }, ...prev].slice(0, 10));
 
         setScanMessage(result.message || 'Anomali terdeteksi');
-        setScanStatus(resolvedAnomalyType);
+        setScanStatus(resolvedAnomalyType || 'ERROR');
 
-        setTimeout(() => {
-          stopCamera();
-          navigate(`/capture-evidence/${transitId}`, {
-            state: {
-              anomalyId: resolvedAnomalyId,
-              anomalyType: resolvedAnomalyType,
-              doNumber: transitNumber,
-              scannedBarcode: barcodeText,
-              isTransit: true,
-              originWarehouse: transitData?.originWarehouse?.name || transitData?.origin_warehouse?.name,
-              destWarehouse: transitData?.destinationWarehouse?.name || transitData?.destination_warehouse?.name || transitData?.dest_warehouse?.name,
-              evidenceUploadUrl: evidenceUrl || `/api/v1/anomalies/${resolvedAnomalyId}/evidences`,
-            }
-          });
-        }, 1500);
+        if (resolvedAnomalyId && evidenceUrl) {
+          // Ada anomali resmi yang perlu evidence → navigate ke capture evidence
+          setTimeout(() => {
+            stopCamera();
+            navigate(`/capture-evidence/${transitId}`, {
+              state: {
+                anomalyId: resolvedAnomalyId,
+                anomalyType: resolvedAnomalyType,
+                doNumber: transitNumber,
+                scannedBarcode: barcodeText,
+                isTransit: true,
+                originWarehouse: transitData?.originWarehouse?.name || transitData?.origin_warehouse?.name,
+                destWarehouse: transitData?.destinationWarehouse?.name || transitData?.destination_warehouse?.name || transitData?.dest_warehouse?.name,
+                evidenceUploadUrl: evidenceUrl,
+              }
+            });
+          }, 1500);
+        } else {
+          // Error tanpa anomaly_id (misal barcode tidak ada di surat jalan) → tampilkan pesan, kamera aktif lagi
+          setTimeout(() => {
+            setScanStatus(null);
+            scanLock.current = false;
+            try { html5QrCode.current?.resume(); } catch (e) { console.error(e); }
+          }, 2000);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -381,7 +411,7 @@ export default function TransitScanner() {
           }`}
           title="Toggle Flashlight"
         >
-          An-Senter 🔦
+          🔦
         </button>
       </header>
 
@@ -440,7 +470,20 @@ export default function TransitScanner() {
             </div>
           </div>
         )}
-        {['MISMATCH', 'NOT_FOUND', 'OVER', 'ERROR'].includes(scanStatus) && (
+        {scanStatus === 'DUPLICATE' && (
+          <div className="bg-white border-2 border-[#F59E0B] p-3 flex items-center gap-4 shadow-sm">
+            <div className="w-12 h-12 rounded-full border-2 border-[#F59E0B] flex items-center justify-center text-[#F59E0B] shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-[#F59E0B] font-bold text-xs tracking-wider">SUDAH DI-SCAN</p>
+              <p className="text-yellow-800 font-semibold text-sm leading-tight break-all">{scanMessage}</p>
+            </div>
+          </div>
+        )}
+        {['MISMATCH', 'NOT_FOUND', 'OVER', 'UNEXPECTED', 'ERROR'].includes(scanStatus) && (
           <div className="bg-white border-2 border-[#DC3545] p-3 flex items-center gap-4 shadow-sm">
             <div className="w-12 h-12 rounded-full border-2 border-[#DC3545] flex items-center justify-center text-[#DC3545] shrink-0">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -465,7 +508,7 @@ export default function TransitScanner() {
         ) : (
           recentScans.map((scan, index) => (
             <div key={index} className="bg-white p-3 border border-gray-200 flex items-center gap-3 shadow-sm mb-2">
-              <div className={`shrink-0 ${scan.status === 'MATCH' ? 'text-[#002060]' : 'text-[#DC3545]'}`}>
+              <div className={`shrink-0 ${scan.status === 'MATCH' ? 'text-[#002060]' : scan.status === 'DUPLICATE' ? 'text-[#F59E0B]' : 'text-[#DC3545]'}`}>
                 <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="2" y="4" width="2" height="16" /><rect x="5" y="4" width="1" height="16" />
                   <rect x="7" y="4" width="2" height="16" /><rect x="10" y="4" width="1" height="16" />

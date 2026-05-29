@@ -113,19 +113,48 @@ class TransitController extends Controller
 
     public function scanOut(TransitScanRequest $request, Transit $transit): JsonResponse
     {
-        if ($transit->status !== Transit::STATUS_TRANSIT_INIT) {
+        if (!in_array($transit->status, [Transit::STATUS_TRANSIT_INIT, Transit::STATUS_INVESTIGATION_REQUIRED], true)) {
             return $this->badRequestResponse('Surat jalan transit tidak dalam status TRANSIT_INIT.');
         }
 
         return DB::transaction(function () use ($request, $transit) {
-            $item = $this->findTransitItemByBarcode($transit, $request->validated('barcode'));
+            $barcodeText = $request->validated('barcode');
+            $item = $this->findTransitItemByBarcode($transit, $barcodeText);
 
             if (!$item) {
-                return $this->badRequestResponse('Barcode tidak terdaftar dalam surat jalan transit aktif.');
+                // Evaluasi apakah barcode resmi terdaftar secara global di Epson internal items
+                $existsGlobally = \App\Models\InternalItem::where('internal_barcode', $barcodeText)->exists();
+                $discrepancyType = $existsGlobally ? Anomaly::DISCREPANCY_MISMATCH : Anomaly::DISCREPANCY_UNEXPECTED;
+
+                $transit->update(['status' => Transit::STATUS_INVESTIGATION_REQUIRED]);
+                $anomaly = $this->createTransitAnomaly(
+                    $transit,
+                    $discrepancyType,
+                    substr($barcodeText, 0, 50),
+                    0,
+                    1,
+                    $request
+                );
+
+                return $this->badRequestResponse(
+                    $existsGlobally
+                        ? 'Barcode salah rute (MISMATCH).'
+                        : 'Barcode tidak terdaftar di master Epson (UNEXPECTED)',
+                    [
+                        'requires_evidence' => true,
+                        'anomaly_id' => $anomaly->id,
+                        'anomaly_type' => $discrepancyType,
+                        'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences",
+                    ]
+                );
             }
 
             if ($item->transit_status === TransitItem::STATUS_SCANNED_OUT) {
-                return $this->badRequestResponse('Barang sudah discan keluar.');
+                // Duplikat scan-out: bukan anomali OVER, hanya penolakan bersih
+                return $this->badRequestResponse(
+                    'Barang ini sudah pernah di-scan keluar sebelumnya. Tidak perlu scan ulang.',
+                    ['duplicate_scan' => true, 'transit_status' => TransitItem::STATUS_SCANNED_OUT]
+                );
             }
 
             if ($item->internalItem->current_warehouse_id !== $transit->origin_warehouse_id) {
@@ -149,7 +178,7 @@ class TransitController extends Controller
 
     public function depart(Request $request, Transit $transit): JsonResponse
     {
-        if ($transit->status !== Transit::STATUS_TRANSIT_INIT) {
+        if (!in_array($transit->status, [Transit::STATUS_TRANSIT_INIT, Transit::STATUS_INVESTIGATION_REQUIRED], true)) {
             return $this->badRequestResponse('Surat jalan transit tidak dalam status TRANSIT_INIT.');
         }
 
@@ -199,8 +228,8 @@ class TransitController extends Controller
                     $transit,
                     $discrepancyType,
                     substr($barcodeText, 0, 50),
-                    $transit->expected_total,
-                    $transit->received_total + 1,
+                    0,
+                    1,
                     $request
                 );
 
@@ -218,24 +247,10 @@ class TransitController extends Controller
             }
 
             if ($item->transit_status === TransitItem::STATUS_SCANNED_IN) {
-                $transit->update(['status' => Transit::STATUS_INVESTIGATION_REQUIRED]);
-                $anomaly = $this->createTransitAnomaly(
-                    $transit,
-                    Anomaly::DISCREPANCY_OVER,
-                    $item->internalItem->sku ?? 'UNKNOWN',
-                    $transit->expected_total,
-                    $transit->received_total + 1,
-                    $request
-                );
-
+                // Duplikat scan-in: bukan anomali OVER, hanya penolakan bersih
                 return $this->badRequestResponse(
-                    'Barang sudah discan masuk (OVER). Status menjadi INVESTIGATION_REQUIRED.',
-                    [
-                        'requires_evidence' => true,
-                        'anomaly_id' => $anomaly->id,
-                        'anomaly_type' => Anomaly::DISCREPANCY_OVER,
-                        'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences",
-                    ]
+                    'Barang ini sudah pernah di-scan masuk sebelumnya. Tidak perlu scan ulang.',
+                    ['duplicate_scan' => true, 'transit_status' => TransitItem::STATUS_SCANNED_IN]
                 );
             }
 

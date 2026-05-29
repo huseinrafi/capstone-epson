@@ -142,39 +142,33 @@ export default function CaptureEvidence() {
         case 'MISSING':
           return {
             title: 'MISSING ITEM',
-            sub: 'Boks terdaftar di surat jalan, tapi fisiknya tidak ada/tertinggal.'
+            sub: 'The box is registered on the delivery note, but the physical item is not there/left behind.'
           };
         case 'UNEXPECTED':
           return {
-            title: 'UNEXPECTED ITEM',
-            sub: 'Barcode hantu/asing, tidak terdaftar di sistem master Epson.'
+            title: 'MISMATCH DETECTED',
+            sub: 'Barcode does not match manifest entry.'
           };
         case 'MISMATCH':
           return {
             title: 'ROUTE MISMATCH',
-            sub: 'Boks resmi Epson, tapi salah rute/salah masuk truk pengiriman.'
-          };
-        case 'DAMAGE':
-        case 'DAMAGED':
-          return {
-            title: 'DAMAGED BOX',
-            sub: 'Fisik boks atau komponen hancur/rusak saat proses mobilisasi.'
+            sub: 'Official Epson box, but wrong route/wrong delivery truck.'
           };
         case 'EXCESSIVE':
         case 'OVER':
           return {
             title: 'EXCESSIVE AMOUNT',
-            sub: 'Boks sudah pernah di-scan sebelumnya (duplikat).'
+            sub: 'Quantity exceed the manifest entry.'
           };
         case 'MANUAL_ISSUE':
           return {
             title: 'REPORT AN ISSUE',
-            sub: 'Jika terdapat kendala fisik boks atau komponen di luar proses scanning.'
+            sub: 'If there is any problem on the package.'
           };
         default:
           return {
-            title: 'UNEXPECTED ITEM',
-            sub: 'Barcode hantu/asing, tidak terdaftar di sistem master Epson.'
+            title: 'MISMATCH DETECTED',
+            sub: 'Barcode does not match manifest entry.'
           };
       }
     } else {

@@ -50,17 +50,15 @@ class InboundReconciliationService
             if ($box->status === DoItemBox::STATUS_SCANNED) {
                 $scan = $this->recordScan($deliveryOrder, $item, $operator, $payload, ScanResult::STATUS_OVER);
 
-                $anomaly = $this->recordAnomaly(
-                    $deliveryOrder,
-                    $scan,
-                    Anomaly::DISCREPANCY_OVER,
-                    $item->sku,
-                    $item->expected_qty,
-                    $item->scanned_qty + 1,
-                    $operator
-                );
-
-                return $this->anomalyResult($scan, $anomaly, ScanResult::STATUS_OVER, 'Box ini sudah pernah di-scan sebelumnya.');
+                return [
+                    'success' => true,
+                    'message' => 'Box ini sudah pernah di-scan sebelumnya.',
+                    'data' => [
+                        'scan_id' => $scan->id,
+                        'result_status' => 'DUPLICATE',
+                        'duplicate_scan' => true,
+                    ]
+                ];
             }
 
             $box->update([
