@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate, useParams } from 'react-router-dom';
+import { triggerHaptic } from '../utils/haptics';
 
 const scanStorageKey = (doId) => `recent_scans_${doId}`;
 
@@ -204,6 +205,7 @@ export default function BarcodeScanner() {
         setScanStatus(status);
 
         if (status === 'MATCH') {
+          triggerHaptic(100);
           const partName = payload?.part_name || barcodeText;
           const boxBarcode = payload?.box_barcode || barcodeText;
           const sku = payload?.sku || '';

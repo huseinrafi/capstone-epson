@@ -7,18 +7,14 @@ function Sidebar({ onLogout }) {
       isActive ? 'bg-[#1A4B9F] text-white' : 'text-gray-700 hover:bg-gray-100'
     }`;
 
-  const userStr = localStorage.getItem('user');
-  const user = userStr ? JSON.parse(userStr) : null;
-  const userRole = localStorage.getItem('role') || 'User';
-
   return (
     <aside className="w-[240px] shrink-0 bg-[#F8F9FA] border-r border-gray-200 flex flex-col h-full">
       <div className="p-6 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-[#002060] text-white text-xs font-bold flex items-center justify-center rounded">E</div>
           <div>
-            <p className="text-[#002060] font-bold text-sm leading-tight">{user?.name || 'SVSB User'}</p>
-            <p className="text-gray-500 text-[10px] capitalize">{userRole.replace('_', ' ')}</p>
+            <p className="text-[#002060] font-bold text-sm leading-tight">SVSB Supervisor</p>
+            <p className="text-gray-500 text-[10px]">Problem Manager</p>
           </div>
         </div>
       </div>
@@ -273,16 +269,11 @@ export default function UserManagement() {
       <Sidebar onLogout={handleLogout} />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Navbar */}
-        <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-5 shrink-0">
-          <div className="flex items-center gap-2">
-            <h1 className="font-bold text-[#002060] text-lg uppercase tracking-wide">SVSB EPSON</h1>
-          </div>
-          <div className="flex items-center gap-4 text-gray-500">
-            <button className="hover:text-[#002060]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg></button>
-            <button className="hover:text-[#002060]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
-            <button className="hover:text-[#002060]"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></button>
-            <div className="w-8 h-8 rounded-full bg-gray-200 border border-gray-300 flex items-center justify-center text-xs font-bold text-gray-700">M</div>
+        {/* ── TOPBAR ── */}
+        <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-5 shrink-0 gap-4">
+          <div className="shrink-0">
+            <h1 className="font-bold text-gray-900 text-sm">Users Control</h1>
+            <p className="text-[11px] text-gray-500">Manage personnel access, roles, and security credentials.</p>
           </div>
         </header>
 
@@ -416,11 +407,19 @@ export default function UserManagement() {
                             <button
                               onClick={() => handleToggleStatus(u)}
                               className="text-gray-500 hover:text-[#002060] border border-gray-300 hover:bg-gray-50 p-2 transition-colors rounded shadow-xs"
-                              title="Toggle user active status"
+                              title={u.is_active ? 'Nonaktifkan User' : 'Aktifkan User'}
                             >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                              </svg>
+                              {u.is_active ? (
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  {/* Open Padlock */}
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                                </svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  {/* Closed Padlock */}
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                              )}
                             </button>
                           </div>
                         </td>

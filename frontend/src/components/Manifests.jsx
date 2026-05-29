@@ -415,6 +415,7 @@ export default function Manifests() {
   const [isDeleting, setIsDeleting]   = useState(false);
   const [filterStatus, setFilterStatus] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
   const role = localStorage.getItem('role') || '';
   const navigate = useNavigate();
@@ -495,6 +496,12 @@ export default function Manifests() {
     }
   }, []);
 
+  // ── Debounce search query 400ms ───────────────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 400);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   // ── Fetch tabel manifest ───────────────────────────────────────────────────
   const fetchManifests = useCallback(async () => {
     setIsLoading(true);
@@ -502,6 +509,7 @@ export default function Manifests() {
       const token = localStorage.getItem('token');
       const params = new URLSearchParams({ per_page: 50 });
       if (filterStatus) params.append('status', filterStatus);
+      if (debouncedSearch) params.append('search', debouncedSearch);
       const res = await fetch(`${import.meta.env.VITE_API_URL}/delivery-orders?${params}`, {
         headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
       });
@@ -509,7 +517,7 @@ export default function Manifests() {
       if (res.ok && result.success) setManifests(result.data.data || []);
     } catch (err) { console.error(err); }
     finally { setIsLoading(false); }
-  }, [filterStatus]);
+  }, [filterStatus, debouncedSearch]);
 
   // Fetch keduanya saat mount dan setiap filter berubah
   useEffect(() => {
@@ -539,13 +547,8 @@ export default function Manifests() {
     finally { setIsDeleting(false); }
   };
 
-  // ── Filter ───────────────────────────────────────────────────────────────────
-  const filtered = manifests.filter(m => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return m.do_number.toLowerCase().includes(q) ||
-           (m.vendor?.name || '').toLowerCase().includes(q);
-  });
+  // ── Filter (server-side via API, hasil sudah difilter) ───────────────────────
+  const filtered = manifests;
 
   const getLeftBarColor = (status) => {
     if (status === 'HOLD_INBOUND') return 'bg-red-500';

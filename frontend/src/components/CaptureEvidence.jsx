@@ -14,6 +14,7 @@ export default function CaptureEvidence() {
     doNumber,
     scannedBarcode,
     evidenceUploadUrl,
+    isTransit,
   } = state;
 
   const videoRef = useRef(null);
@@ -121,7 +122,7 @@ export default function CaptureEvidence() {
 
       if (response.ok && result.success) {
         // Berhasil dikunci, kirim operator ke halaman tunggu approval supervisor
-        navigate(`/waiting-approval/${doId}`, { replace: true, state: { doNumber } });
+        navigate(`/waiting-approval/${doId}`, { replace: true, state: { doNumber, isTransit } });
       } else {
         alert(result.message || 'Gagal menyimpan bukti data anomali.');
         setShowSubmitPopup(false);
@@ -176,7 +177,7 @@ export default function CaptureEvidence() {
     <div className="flex flex-col min-h-[100dvh] bg-[#F8F9FA] font-sans pb-8">
       {/* HEADER */}
       <header className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
-        <button onClick={() => navigate(`/scanner/${doId}`)} className="text-gray-600">
+        <button onClick={() => navigate(isTransit ? `/transit-scanner/${doId}` : `/scanner/${doId}`)} className="text-gray-600">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>

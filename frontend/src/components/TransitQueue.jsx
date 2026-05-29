@@ -28,6 +28,13 @@ const STATUS_CARD = {
   },
 };
 
+const ROLE_LABEL = {
+  operator_checker: 'Operator Checker',
+  admin_gudang:     'Admin Gudang',
+  supervisor:       'Supervisor',
+  manajer:          'Manajer',
+};
+
 export default function TransitQueue() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -38,7 +45,10 @@ export default function TransitQueue() {
   const [search, setSearch] = useState('');
 
   const userStr = localStorage.getItem('user');
-  const userName = userStr ? JSON.parse(userStr).name : 'Operator';
+  const user = userStr ? JSON.parse(userStr) : null;
+  const userName = user?.name || 'Operator';
+  const roleSlug = localStorage.getItem('role') || user?.role?.slug || '';
+  const roleLabel = ROLE_LABEL[roleSlug] || roleSlug || 'Operator';
 
   const fetchQueue = useCallback(async () => {
     setIsLoading(true);
@@ -204,7 +214,7 @@ export default function TransitQueue() {
 
       <div className="px-4 py-2">
         <h2 className="text-2xl font-bold text-[#002060]">Hi, {userName}!</h2>
-        <p className="text-gray-500 text-sm mb-4">Role: Material Handler</p>
+        <p className="text-gray-500 text-sm mb-4">Role: {roleLabel}</p>
 
         {/* KPI MATRIX BANNER */}
         <div className="flex bg-[#EFEFF4] border border-gray-200 mb-4">

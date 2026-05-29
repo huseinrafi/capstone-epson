@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate, useParams } from 'react-router-dom';
+import { triggerHaptic } from '../utils/haptics';
 
 const scanStorageKey = (transitId) => `transit_recent_scans_${transitId}`;
 
@@ -61,28 +62,16 @@ export default function TransitScanner() {
         setTransitData(tData);
         setTransitNumber(tData.transit_number || transitId);
         
-        // Pembedaan Variabel Progress: INIT membaca sent_total, IN_TRANSIT membaca received_total
-        const isCheckingIn = tData.status === 'IN_TRANSIT';
+        // Pembedaan Variabel Progress: INIT membaca sent_total, IN_TRANSIT / INVESTIGATION_REQUIRED membaca received_total
+        const isCheckingIn = tData.status === 'IN_TRANSIT' || tData.status === 'INVESTIGATION_REQUIRED';
         setProgress({
           scanned: isCheckingIn ? (tData.received_total ?? 0) : (tData.sent_total ?? 0),
           expected: tData.expected_total ?? 0
         });
 
         // Validasi Status Pengamanan Alur
-        if (tData.status === 'TRANSIT_INIT' || tData.status === 'IN_TRANSIT') {
+        if (tData.status === 'TRANSIT_INIT' || tData.status === 'IN_TRANSIT' || tData.status === 'INVESTIGATION_REQUIRED') {
           setDoReady(true);
-        } else if (tData.status === 'INVESTIGATION_REQUIRED') {
-          navigate(`/capture-evidence/${transitId}`, {
-            replace: true,
-            state: {
-              anomalyId: null,
-              anomalyType: 'MISSING',
-              doNumber: tData.transit_number,
-              isTransit: true,
-              originWarehouse: tData.originWarehouse?.name || tData.origin_warehouse?.name,
-              destWarehouse: tData.destinationWarehouse?.name || tData.destination_warehouse?.name || tData.dest_warehouse?.name,
-            }
-          });
         } else {
           setDoError(`Akses ditolak. Dokumen transit sudah berstatus: ${tData.status}`);
         }
@@ -175,7 +164,7 @@ export default function TransitScanner() {
     
     try {
       const token = localStorage.getItem('token');
-      const isCheckingIn = transitData.status === 'IN_TRANSIT';
+      const isCheckingIn = transitData.status === 'IN_TRANSIT' || transitData.status === 'INVESTIGATION_REQUIRED';
 
       // SELEKSI ENDPOINT ASLI: INIT lari ke scan-out, IN_TRANSIT lari ke scan-in
       const scanEndpoint = isCheckingIn
@@ -191,6 +180,7 @@ export default function TransitScanner() {
       const result = await response.json();
 
       if (response.ok && result.success) {
+        triggerHaptic(100);
         setScanStatus('MATCH');
         setScanMessage(barcodeText);
 
@@ -295,7 +285,7 @@ export default function TransitScanner() {
     setIsFinishing(true);
     try {
       const token = localStorage.getItem('token');
-      const isCheckingIn = transitData.status === 'IN_TRANSIT';
+      const isCheckingIn = transitData.status === 'IN_TRANSIT' || transitData.status === 'INVESTIGATION_REQUIRED';
 
       // SELEKSI ENDPOINT SUBMIT: INIT lari ke depart, IN_TRANSIT lari ke complete
       const actionEndpoint = isCheckingIn
@@ -378,7 +368,7 @@ export default function TransitScanner() {
           </svg>
         </button>
         <h1 className="text-[#002060] font-bold tracking-wide uppercase text-sm">
-          TRANSIT - {transitData?.status === 'IN_TRANSIT' ? 'SCAN IN' : 'SCAN OUT'}
+          TRANSIT - {(transitData?.status === 'IN_TRANSIT' || transitData?.status === 'INVESTIGATION_REQUIRED') ? 'SCAN IN' : 'SCAN OUT'}
         </h1>
         <button
           onClick={toggleFlashlight}
@@ -501,7 +491,7 @@ export default function TransitScanner() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
           </svg>
-          {transitData?.status === 'IN_TRANSIT' ? 'Finish Scan & Complete' : 'Finish Scan & Depart'}
+          {(transitData?.status === 'IN_TRANSIT' || transitData?.status === 'INVESTIGATION_REQUIRED') ? 'Finish Scan & Complete' : 'Finish Scan & Depart'}
         </button>
       </div>
 
@@ -521,12 +511,12 @@ export default function TransitScanner() {
                 </svg>
               </div>
               <h2 className="text-xl font-bold text-gray-900">
-                {transitData?.status === 'IN_TRANSIT' ? 'Complete Transit?' : 'Confirm Departure?'}
+                {(transitData?.status === 'IN_TRANSIT' || transitData?.status === 'INVESTIGATION_REQUIRED') ? 'Complete Transit?' : 'Confirm Departure?'}
               </h2>
             </div>
             <div className="px-6 py-5">
               <p className="text-gray-600 text-sm leading-relaxed">
-                {transitData?.status === 'IN_TRANSIT' 
+                {(transitData?.status === 'IN_TRANSIT' || transitData?.status === 'INVESTIGATION_REQUIRED') 
                   ? 'Apakah Anda yakin ingin menyelesaikan dokumen ini? Hak kepemilikan barang akan resmi masuk ke gudang tujuan.' 
                   : 'Apakah Anda yakin ingin memberangkatkan troli muat? Status dokumen akan berubah menjadi IN_TRANSIT.'}
               </p>
