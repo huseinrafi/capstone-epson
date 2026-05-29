@@ -1,15 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 
+const ROLE_LABEL = {
+    operator_checker: 'Operator Checker',
+    admin_gudang:     'Admin Gudang',
+    supervisor:       'Supervisor',
+    manajer:          'Manajer',
+};
+
 export default function ManifestQueue() {
     const navigate = useNavigate();
-    const location = useLocation(); // ✅ FIX 2: deteksi kembali ke halaman ini
+    const location = useLocation();
     const [queue, setQueue] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [search, setSearch] = useState('');
 
     const userStr = localStorage.getItem('user');
-    const userName = userStr ? JSON.parse(userStr).name : 'Operator';
+    const user = userStr ? JSON.parse(userStr) : null;
+    const userName = user?.name || 'Operator';
+    const roleSlug = localStorage.getItem('role') || user?.role?.slug || '';
+    const roleLabel = ROLE_LABEL[roleSlug] || roleSlug || 'Operator';
 
     // ✅ FIX 2: useCallback agar bisa dipanggil dari useEffect manapun
     const fetchQueueData = useCallback(async () => {
@@ -44,6 +55,13 @@ export default function ManifestQueue() {
 
     const pendingCount = queue.filter(i => i.status === 'PENDING').length;
     const activeCount = queue.filter(i => i.status === 'IN_PROGRESS' || i.status === 'HOLD_INBOUND').length;
+
+    const filtered = search.trim()
+        ? queue.filter(item =>
+            (item.do_number || '').toLowerCase().includes(search.toLowerCase()) ||
+            (item.vendor?.name || '').toLowerCase().includes(search.toLowerCase())
+          )
+        : queue;
 
     const handleStartScan = async (doId, currentStatus) => {
         const token = localStorage.getItem('token');
@@ -222,7 +240,7 @@ export default function ManifestQueue() {
             {/* GREETING & SUMMARY */}
             <div className="px-4 py-2">
                 <h2 className="text-2xl font-bold text-[#002060]">Hi, {userName}!</h2>
-                <p className="text-gray-600 text-sm mb-4">Station ID: INBOUND-1 | Role: Operator</p>
+                <p className="text-gray-600 text-sm mb-4">Station ID: INBOUND-1 | Role: {roleLabel}</p>
 
                 <div className="flex bg-[#EFEFF4] rounded-md border border-gray-200">
                     <div className="flex-1 p-3 text-center border-r border-gray-300">
@@ -242,8 +260,13 @@ export default function ManifestQueue() {
                     <div className="flex items-center pl-3 text-gray-400">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                     </div>
-                    <input type="text" placeholder="Search DO Number" className="flex-1 py-2 outline-none text-gray-700" />
-                    <button className="bg-[#002060] text-white px-4 py-2 font-semibold text-sm">SEARCH</button>
+                    <input
+                        type="text"
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        placeholder="Search DO Number"
+                        className="flex-1 py-2 outline-none text-gray-700"
+                    />
                 </div>
             </div>
 
@@ -253,10 +276,12 @@ export default function ManifestQueue() {
                     <div className="text-center py-10 text-[#002060] font-bold animate-pulse">Memuat Data...</div>
                 ) : error ? (
                     <div className="bg-red-100 text-red-700 p-4 text-center border border-red-200 rounded">{error}</div>
-                ) : queue.length === 0 ? (
-                    <div className="text-center py-10 text-gray-500">Tidak ada antrian DO saat ini.</div>
+                ) : filtered.length === 0 ? (
+                    <div className="text-center py-10 text-gray-500">
+                        {search ? `Tidak ada DO ditemukan untuk "${search}".` : 'Tidak ada antrian DO saat ini.'}
+                    </div>
                 ) : (
-                    queue.map(item => renderCard(item))
+                    filtered.map(item => renderCard(item))
                 )}
             </div>
 

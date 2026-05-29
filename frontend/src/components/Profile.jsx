@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { triggerHaptic } from '../utils/haptics';
 
 // ─── ROLE LABEL ───────────────────────────────────────────────────────────────
 const ROLE_LABEL = {
@@ -60,7 +61,13 @@ export default function Profile() {
 
   const handleHaptic = (val) => {
     setHaptic(val);
-    localStorage.setItem('pref_haptic', String(val));
+    if (val) {
+      localStorage.setItem('pref_haptic', 'true');
+      triggerHaptic([50, 50, 50]); 
+    } else {
+      triggerHaptic(15); 
+      localStorage.setItem('pref_haptic', 'false');
+    }
   };
 
   const handleLogout = () => {

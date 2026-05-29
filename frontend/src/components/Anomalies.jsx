@@ -324,6 +324,7 @@ export default function Anomalies() {
   const [isLoading, setIsLoading]   = useState(true);
   const [isDetailLoad, setDetailLoad] = useState(false);
   const [search, setSearch]         = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [confirmPopup, setConfirm]  = useState(null);
   const [isSubmitting, setSubmitting] = useState(false);
@@ -335,6 +336,12 @@ export default function Anomalies() {
     navigate('/login');
   };
 
+  // ── Debounce search 400ms ────────────────────────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchList = useCallback(async () => {
     setIsLoading(true);
@@ -342,6 +349,7 @@ export default function Anomalies() {
       const token = localStorage.getItem('token');
       const params = new URLSearchParams({ per_page: 50 });
       if (typeFilter) params.append('anomaly_type', typeFilter);
+      if (debouncedSearch) params.append('search', debouncedSearch);
       const res = await fetch(`${import.meta.env.VITE_API_URL}/anomalies/review-queue?${params}`, {
         headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
       });
@@ -349,7 +357,7 @@ export default function Anomalies() {
       if (res.ok && result.success) setAnomalies(result.data.data || []);
     } catch (err) { console.error(err); }
     finally { setIsLoading(false); }
-  }, [typeFilter]);
+  }, [typeFilter, debouncedSearch]);
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
@@ -390,13 +398,8 @@ export default function Anomalies() {
     finally { setSubmitting(false); }
   };
 
-  // ── Filter ──────────────────────────────────────────────────────────────────
-  const filtered = anomalies.filter(a => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (a.reference?.do_number || '').toLowerCase().includes(q) ||
-           (a.affected_sku || '').toLowerCase().includes(q);
-  });
+  // ── Filter (server-side via API) ─────────────────────────────────────────────
+  const filtered = anomalies;
 
   const counts = {
     ALL:      anomalies.length,

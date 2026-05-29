@@ -24,6 +24,12 @@ class AnomalyReviewController extends Controller
         $anomalies = Anomaly::query()
             ->with(['reference', 'reporter.role', 'evidences.uploader'])
             ->when($request->anomaly_type, fn($query, $type) => $query->where('anomaly_type', $type))
+            ->when($request->search, function ($query, $search) {
+                $query->where(function ($inner) use ($search) {
+                    $inner->where('affected_sku', 'like', "%{$search}%")
+                          ->orWhereHas('reference', fn($r) => $r->where('do_number', 'like', "%{$search}%"));
+                });
+            })
             ->where('status', Anomaly::STATUS_PENDING_REVIEW)
             ->latest()
             ->paginate($request->integer('per_page', 15));
