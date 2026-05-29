@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Anomaly;
 use App\Models\DoItem;
+use App\Models\Role;
 use App\Models\Vendor;
 use App\Models\Warehouse;
 use App\Traits\ApiResponse;
@@ -63,11 +64,11 @@ class LookupController extends Controller
         $skus = DoItem::query()
             ->select('sku')
             ->distinct()
-            ->when($filters['q'], fn ($query, string $keyword) => $query->where('sku', 'like', "%{$keyword}%"))
+            ->when($filters['q'], fn($query, string $keyword) => $query->where('sku', 'like', "%{$keyword}%"))
             ->orderBy('sku')
             ->limit($filters['limit'])
             ->get()
-            ->map(fn (DoItem $item) => [
+            ->map(fn(DoItem $item) => [
                 'sku' => $item->sku,
                 'label' => $item->sku,
             ])
@@ -103,6 +104,16 @@ class LookupController extends Controller
                 'RECOUNT',
             ],
         ], 'Lookup opsi anomali berhasil diambil.');
+    }
+
+    public function roles(): JsonResponse
+    {
+        $roles = Role::query()
+            ->select(['id', 'name', 'slug', 'description'])
+            ->orderBy('name')
+            ->get();
+
+        return $this->successResponse($roles, 'Lookup role berhasil diambil.');
     }
 
     private function filters(Request $request): array

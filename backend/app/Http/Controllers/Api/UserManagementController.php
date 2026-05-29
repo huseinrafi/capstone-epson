@@ -13,9 +13,6 @@ class UserManagementController extends Controller
 {
     use ApiResponse;
 
-    /**
-     * Daftar semua user dengan relasi role, termasuk filter dan pagination.
-     */
     public function index(Request $request): JsonResponse
     {
         $users = User::query()
@@ -37,9 +34,7 @@ class UserManagementController extends Controller
         return $this->successResponse($users, 'Data user berhasil diambil.');
     }
 
-    /**
-     * Daftar semua role yang tersedia untuk dropdown.
-     */
+  
     public function roles(): JsonResponse
     {
         $roles = Role::all();
@@ -47,9 +42,6 @@ class UserManagementController extends Controller
         return $this->successResponse($roles, 'Data role berhasil diambil.');
     }
 
-    /**
-     * Update role user.
-     */
     public function updateRole(Request $request, User $user): JsonResponse
     {
         $validated = $request->validate([
@@ -64,9 +56,7 @@ class UserManagementController extends Controller
         );
     }
 
-    /**
-     * Toggle status aktif/nonaktif user.
-     */
+ 
     public function toggleStatus(User $user): JsonResponse
     {
         // Jangan biarkan manajer menonaktifkan dirinya sendiri
@@ -82,9 +72,6 @@ class UserManagementController extends Controller
         );
     }
 
-    /**
-     * Tambah user baru (oleh manajer).
-     */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
