@@ -21,8 +21,8 @@ export default function CaptureEvidence() {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
 
-  const [capturedPhoto, setCapturedPhoto] = useState(null); 
-  const [capturedFile, setCapturedFile] = useState(null);   
+  const [capturedPhoto, setCapturedPhoto] = useState(null);
+  const [capturedFile, setCapturedFile] = useState(null);
   const [notes, setNotes] = useState('');
   const [gps, setGps] = useState({ lat: null, lon: null });
   const [timestamp] = useState(new Date());
@@ -136,35 +136,34 @@ export default function CaptureEvidence() {
     }
   };
 
-  // ─── EVALUASI LABEL STRUKTURAL SESUAI ATURAN PRD & REVISI GAMBAR ───────────
   const getAnomalyLabel = () => {
     switch (anomalyType) {
       case 'MISSING':
-        return { 
-          title: 'MISSING PART DETECTED', 
-          sub: 'Part quantity does not match manifest entry.' 
+        return {
+          title: 'MISSING PARTS DETECTED',
+          sub: 'Quantity does not match manifest entry.'
         };
       case 'EXCESSIVE':
       case 'OVER':
-        return { 
-          title: 'EXCESSIVE SCAN DETECTED', 
-          sub: 'Item scanned melebihi expected quantity.' 
+        return {
+          title: 'EXCESSIVE AMOUNT',
+          sub: 'Quantity exceed the manifest entry.'
         };
       case 'MANUAL_ISSUE':
-        return { 
-          title: 'REPORT AN ISSUE', 
-          sub: 'Manual issue report submitted by operator.' 
+        return {
+          title: 'REPORT AN ISSUE',
+          sub: 'If there is any problem on the package.'
         };
-      case 'MISMATCH': 
-        return { 
-          title: 'MISMATCH DETECTED', 
-          sub: 'Hardware scan does not match manifest entry.' 
+      case 'MISMATCH':
+        return {
+          title: 'MISMATCH DETECTED',
+          sub: 'Hardware scan does not match manifest entry.'
         };
       case 'NOT_FOUND':
-      default:         
-        return { 
-          title: 'BARCODE NOT FOUND', 
-          sub: 'Barcode tidak ditemukan dalam manifest aktif.' 
+      default:
+        return {
+          title: 'MISMATCH DETECTED',
+          sub: 'Barcode does not match manifest entry.'
         };
     }
   };
@@ -213,9 +212,9 @@ export default function CaptureEvidence() {
             <div className="flex items-center gap-2 mb-1">
               <div className="text-[#C0392B]">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="2" y="4" width="2" height="16"/><rect x="5" y="4" width="1" height="16"/>
-                  <rect x="7" y="4" width="2" height="16"/><rect x="10" y="4" width="1" height="16"/>
-                  <rect x="12" y="4" width="3" height="16"/>
+                  <rect x="2" y="4" width="2" height="16" /><rect x="5" y="4" width="1" height="16" />
+                  <rect x="7" y="4" width="2" height="16" /><rect x="10" y="4" width="1" height="16" />
+                  <rect x="12" y="4" width="3" height="16" />
                 </svg>
               </div>
               <p className="text-[10px] font-bold text-[#C0392B] tracking-wider">SCANNED INPUT</p>
@@ -239,15 +238,24 @@ export default function CaptureEvidence() {
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-4 text-center">
               <p className="text-xs text-red-300">{cameraError}</p>
             </div>
-          ) : capturedPhoto ? (
-            <img src={capturedPhoto} alt="evidence" className="w-full h-full object-cover" />
           ) : (
             <>
-              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-              <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/60 px-2 py-1">
-                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-white text-[10px] font-bold tracking-wider">LIVE FEED</span>
-              </div>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover ${capturedPhoto ? 'hidden' : ''}`}
+              />
+              {!capturedPhoto && (
+                <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/60 px-2 py-1">
+                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-white text-[10px] font-bold tracking-wider">LIVE FEED</span>
+                </div>
+              )}
+              {capturedPhoto && (
+                <img src={capturedPhoto} alt="evidence" className="w-full h-full object-cover" />
+              )}
             </>
           )}
           <canvas ref={canvasRef} className="hidden" />

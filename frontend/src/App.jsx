@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -18,10 +19,64 @@ import TransitQueue from "./components/TransitQueue";
 import CreateTransit from './components/CreateTransit';
 import PrintTransitLabel from './components/PrintTransitLabel';
 
+// ─── INTERCEPTOR FETCH GLOBAL UNTUK HTTP 401 ──────────────────────────────────
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+  const response = await originalFetch(...args);
+  if (response.status === 401) {
+    const isLoginRequest = args[0] && typeof args[0] === 'string' && args[0].includes('/login');
+    if (!isLoginRequest && localStorage.getItem('token')) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('role');
+      localStorage.removeItem('user');
+      if (!window.isSessionExpiredAlerted) {
+        window.isSessionExpiredAlerted = true;
+        alert("Sesi Anda telah berakhir. Silakan login kembali.");
+        window.location.href = "/login";
+      }
+    }
+  }
+  return response;
+};
+
+// Helper untuk mengecek tanggal kadaluarsa dari token JWT secara lokal
+function checkTokenExpiration() {
+  const token = localStorage.getItem('token');
+  if (!token) return;
+
+  try {
+    const base64Url = token.split('.')[1];
+    if (!base64Url) return;
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      window.atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const { exp } = JSON.parse(jsonPayload);
+    if (exp && exp < Date.now() / 1000) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('role');
+      localStorage.removeItem('user');
+      if (!window.isSessionExpiredAlerted) {
+        window.isSessionExpiredAlerted = true;
+        alert("Sesi Anda telah berakhir. Silakan login kembali.");
+        window.location.href = "/login";
+      }
+    }
+  } catch (e) {
+    console.error("Token parse error:", e);
+  }
+}
+
 // ─── KOMPONEN PROTEKSI AKSES ROLE (RBAC ENGINE) ──────────────────────────────
 function ProtectedRoute({ children, allowedRoles }) {
   const token = localStorage.getItem('token');
   const role = localStorage.getItem('role');
+
+  // Validasi masa aktif token saat ganti route/komponen dimuat
+  checkTokenExpiration();
 
   // 1. Jika token tidak valid/kosong, paksa kembali ke gerbang Login
   if (!token) {
@@ -38,6 +93,18 @@ function ProtectedRoute({ children, allowedRoles }) {
 }
 
 export default function App() {
+  useEffect(() => {
+    // Reset flag saat aplikasi di-load/mount
+    window.isSessionExpiredAlerted = false;
+
+    // Lakukan pemeriksaan berkala setiap 10 detik
+    const interval = setInterval(() => {
+      checkTokenExpiration();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   // ─── MATRIKS GRUP OTORISASI SESUAI SPESIFIKASI OPERASIONAL ─────────────────
   
   // 1. Level Tertinggi Eksekutif (Hanya Manajer yang memegang kendali user)
@@ -72,14 +139,6 @@ export default function App() {
 
         {/* ─── DESKTOP VIEW ROUTES (MANAGEMENT CONTROL TOWER) ─── */}
         <Route
-          path="/dashboard"
-          element = {
-            <ProtectedRoute allowedRoles={desktopControlRoles}>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/manifests"
           element = {
             <ProtectedRoute allowedRoles={desktopControlRoles}>
@@ -100,6 +159,14 @@ export default function App() {
           element = {
             <ProtectedRoute allowedRoles={desktopControlRoles}>
               <PrintTransitLabel />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element = {
+            <ProtectedRoute allowedRoles={analyticsRoles}>
+              <Dashboard />
             </ProtectedRoute>
           }
         />

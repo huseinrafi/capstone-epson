@@ -58,5 +58,16 @@ class DatabaseSeeder extends Seeder
                 'updated_at' => now(),
             ]
         ]);
+
+        DB::table('vendors')->insert([
+            'id' => (string) Str::uuid(),
+            'code' => 'VND-TEST02',
+            'name' => 'Vendor Test02',
+            'contact_name' => 'Test Contact 02',
+            'contact_phone' => '0800000800000',
+            'address' => 'Test Address 02',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

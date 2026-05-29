@@ -24,7 +24,7 @@ class DeliveryOrderController extends Controller
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($inner) use ($search) {
                     $inner->where('do_number', 'like', "%{$search}%")
-                          ->orWhereHas('vendor', fn($v) => $v->where('name', 'like', "%{$search}%"));
+                        ->orWhereHas('vendor', fn($v) => $v->where('name', 'like', "%{$search}%"));
                 });
             })
             ->latest()
@@ -45,7 +45,7 @@ class DeliveryOrderController extends Controller
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($inner) use ($search) {
                     $inner->where('do_number', 'like', "%{$search}%")
-                          ->orWhereHas('vendor', fn($v) => $v->where('name', 'like', "%{$search}%"));
+                        ->orWhereHas('vendor', fn($v) => $v->where('name', 'like', "%{$search}%"));
                 });
             })
             ->orderByRaw("CASE status WHEN 'IN_PROGRESS' THEN 1 WHEN 'HOLD_INBOUND' THEN 2 WHEN 'PENDING' THEN 3 ELSE 4 END")

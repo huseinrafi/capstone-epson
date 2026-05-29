@@ -35,7 +35,7 @@ class InboundReconciliationService
                 $anomaly = $this->recordAnomaly(
                     $deliveryOrder,
                     $scan,
-                    Anomaly::DISCREPANCY_UNEXPECTED,
+                    Anomaly::DISCREPANCY_MISMATCH,
                     substr($barcode, 0, 50),
                     0,
                     1,

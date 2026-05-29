@@ -38,6 +38,8 @@ export default function Login() {
 
         if (userRole === 'operator_checker' || userRole === 'operator') {
           navigate('/inbound');
+        } else if(userRole === 'admin_gudang'){
+          navigate('/manifests');
         } else {
           navigate('/dashboard');
         }

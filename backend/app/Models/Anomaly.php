@@ -33,6 +33,8 @@ class Anomaly extends Model
 
     public const DISCREPANCY_MISMATCH = 'MISMATCH';
 
+    public const STATUS_RESOLVED = 'DAMAGE';
+
     protected $fillable = [
         'anomaly_type',
         'reference_type',

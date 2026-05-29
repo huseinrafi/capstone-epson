@@ -15,7 +15,7 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $table->enum('anomaly_type', ['INBOUND_DISCREPANCY', 'TRANSIT_DISCREPANCY']);
             $table->uuidMorphs('reference'); 
-            $table->enum('discrepancy_type', ['MISSING', 'OVER', 'DAMAGE', 'UNEXPECTED']);
+            $table->enum('discrepancy_type', ['MISSING', 'OVER', 'DAMAGE', 'UNEXPECTED', 'MISMATCH']);
             $table->string('affected_sku', 50);
             $table->integer('expected_qty');
             $table->integer('actual_qty');
