@@ -14,6 +14,7 @@ use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class TransitController extends Controller
 {
@@ -34,20 +35,20 @@ class TransitController extends Controller
     {
         $validated = $request->validated();
 
+        // Koreksi Celah 5: Bersihkan array input dari potensi manipulasi data ganda
+        $validated['internal_item_ids'] = array_unique($validated['internal_item_ids']);
+
         $transit = DB::transaction(function () use ($validated, $request) {
             $items = InternalItem::query()
                 ->whereIn('id', $validated['internal_item_ids'])
                 ->lockForUpdate()
                 ->get();
 
+            // Koreksi Celah 1: Melempar exception standar Laravel
             if ($items->count() !== count($validated['internal_item_ids'])) {
-                abort(response()->json([
-                    'success' => false,
-                    'message' => 'Ada barang internal yang tidak ditemukan.',
-                    'errors' => [
-                        'internal_item_ids' => $validated['internal_item_ids'],
-                    ],
-                ], 422));
+                throw ValidationException::withMessages([
+                    'internal_item_ids' => ['Ada komponen boks internal yang tidak terdaftar di sistem.']
+                ]);
             }
 
             $invalidItems = $items->filter(
@@ -56,23 +57,31 @@ class TransitController extends Controller
             );
 
             if ($invalidItems->isNotEmpty()) {
-                abort(response()->json([
-                    'success' => false,
-                    'message' => 'Ada barang yang tidak tersedia di gudang asal.',
-                    'errors' => [
-                        'internal_item_ids' => $invalidItems->pluck('id')->values(),
-                    ],
-                ], 422));
+                throw ValidationException::withMessages([
+                    'internal_item_ids' => ['Ada komponen boks yang lokasinya tidak sesuai atau terlibat transaksi lain.']
+                ]);
             }
 
+            // Koreksi Celah 1 (Penting): Generasi sekuensial. 
+            // Catatan: Anda WAJIB menambahkan $table->string('transit_number')->unique() di migrasi database.
+            $datePrefix = now()->format('Ymd');
+            $lastTransit = Transit::query()
+                ->whereDate('created_at', now()->toDateString())
+                ->lockForUpdate() 
+                ->latest('id')
+                ->first();
+
+            $sequence = $lastTransit ? ((int) substr($lastTransit->transit_number, -4)) + 1 : 1;
+            $transitNumber = 'TRX-' . $datePrefix . '-' . str_pad($sequence, 4, '0', STR_PAD_LEFT);
+
+            // Koreksi Celah 10: Hapus ketergantungan properti sent_total yang membingungkan audit trail
             $transit = Transit::create([
-                'transit_number' => $validated['transit_number'],
+                'transit_number' => $transitNumber,
                 'origin_warehouse_id' => $validated['origin_warehouse_id'],
                 'dest_warehouse_id' => $validated['dest_warehouse_id'],
                 'created_by' => $request->user('api')->id,
                 'status' => Transit::STATUS_TRANSIT_INIT,
                 'expected_total' => $items->count(),
-                'sent_total' => 0,
                 'received_total' => 0,
             ]);
 
@@ -84,13 +93,8 @@ class TransitController extends Controller
                 ]);
             }
 
-            return $transit->load([
-                'originWarehouse',
-                'destinationWarehouse',
-                'creator.role',
-                'items.internalItem',
-            ]);
-        });
+            return $transit->load(['originWarehouse', 'destinationWarehouse', 'creator.role']);
+        ]);
 
         return $this->successResponse($transit, 'Surat jalan transit berhasil dibuat.', 201);
     }
@@ -111,196 +115,172 @@ class TransitController extends Controller
         );
     }
 
-    public function scanOut(TransitScanRequest $request, Transit $transit): JsonResponse
+    public function scans(TransitScanRequest $request, Transit $transit): JsonResponse
     {
-        if ($transit->status !== Transit::STATUS_TRANSIT_INIT) {
-            return $this->badRequestResponse('Surat jalan transit tidak dalam status TRANSIT_INIT.');
-        }
-
         return DB::transaction(function () use ($request, $transit) {
-            $item = $this->findTransitItemByBarcode($transit, $request->validated('barcode'));
+            // Koreksi Celah 8: Kunci data induk Transit di awal transaksi untuk mengamankan konsistensi status dokumen
+            $transit = Transit::query()->lockForUpdate()->findOrFail($transit->id);
 
+            // Koreksi Celah 6: Pembekuan total operasi scan jika dokumen sudah selesai atau mendeteksi anomali
+            if (in_array($transit->status, [Transit::STATUS_TRANSIT_COMPLETED, Transit::STATUS_INVESTIGATION_REQUIRED], true)) {
+                return $this->badRequestResponse('Operasi pemindaian dibekukan. Status dokumen memerlukan investigasi supervisor.');
+            }
+
+            // Koreksi Celah 9: Normalisasi dua sisi (Uppercase & Trim) untuk mengantisipasi sensitivitas mesin database
+            $normalizedBarcode = strtoupper(trim($request->validated('barcode')));
+            $item = $this->findTransitItemByBarcode($transit, $normalizedBarcode);
+
+            // Skenario A: Barcode Tidak Terdaftar dalam Batch (EXCESSIVE)
             if (!$item) {
-                return $this->badRequestResponse('Barcode tidak terdaftar dalam surat jalan transit aktif.');
+                $transit->update(['status' => Transit::STATUS_INVESTIGATION_REQUIRED]);
+                
+                // Koreksi Celah 4: Hitung nilai aktual riil langsung dari database agregat
+                $currentScannedCount = $transit->items()->where('transit_status', TransitItem::STATUS_SCANNED_OUT)->count();
+                
+                $anomaly = $this->createTransitAnomaly(
+                    $transit,
+                    Anomaly::DISCREPANCY_OVER,
+                    substr($normalizedBarcode, 0, 50),
+                    $transit->expected_total,
+                    $currentScannedCount + 1,
+                    $request
+                );
+
+                return $this->badRequestResponse(
+                    'Barcode tidak terdaftar dalam dokumen batch transit ini. Operasi otomatis dikunci.',
+                    [
+                        'requires_evidence' => true,
+                        'anomaly_id' => $anomaly->id,
+                        'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences",
+                    ]
+                );
             }
 
+            // Skenario B: Duplikasi scan boks fisik di lokasi asal
             if ($item->transit_status === TransitItem::STATUS_SCANNED_OUT) {
-                return $this->badRequestResponse('Barang sudah discan keluar.');
+                return $this->badRequestResponse('Boks komparasi sudah berada di dalam daftar muat troli.');
             }
 
-            if ($item->internalItem->current_warehouse_id !== $transit->origin_warehouse_id) {
-                return $this->badRequestResponse('Barang tidak berada di gudang asal.');
-            }
-
+            // Koreksi Celah 3: Amankan rekam jejak keluar boks (Fase 1: Muat Barang)
             $item->update([
                 'transit_status' => TransitItem::STATUS_SCANNED_OUT,
                 'scan_out_by' => $request->user('api')->id,
                 'scanned_out_at' => now(),
+                'scan_in_by' => null,
+                'scanned_in_at' => null,
             ]);
 
-            $transit->increment('sent_total');
+            // Mutasi status item fisik menjadi sedang bergerak di dalam lorong pabrik
+            $item->internalItem->update(['status' => InternalItem::STATUS_IN_TRANSIT]);
+
+            // Koreksi Celah 2: Gunakan Conditional Update atomic untuk mencegah lost update status dokumen induk
+            Transit::query()
+                ->where('id', $transit->id)
+                ->where('status', Transit::STATUS_TRANSIT_INIT)
+                ->update(['status' => Transit::STATUS_IN_TRANSIT]);
 
             return $this->successResponse(
                 $item->fresh(['internalItem', 'scanOutOperator.role']),
-                'Scan keluar berhasil.'
+                'Boks terverifikasi masuk ke dalam daftar muat troli.'
             );
         });
     }
 
-    public function depart(Request $request, Transit $transit): JsonResponse
+    public function finish(Request $request, Transit $transit): JsonResponse
     {
-        if ($transit->status !== Transit::STATUS_TRANSIT_INIT) {
-            return $this->badRequestResponse('Surat jalan transit tidak dalam status TRANSIT_INIT.');
-        }
+        return DB::transaction(function () use ($request, $transit) {
+            // Koreksi Celah 8: Kunci data induk Transit sebelum menutup transaksi massal
+            $transit = Transit::query()->lockForUpdate()->findOrFail($transit->id);
 
-        return DB::transaction(function () use ($transit) {
-            $pendingItem = $transit->items()
-                ->where('transit_status', TransitItem::STATUS_PENDING)
-                ->lockForUpdate()
-                ->first();
-
-            if ($pendingItem) {
-                return $this->badRequestResponse('Masih ada barang yang belum discan keluar.');
+            if ($transit->status === Transit::STATUS_TRANSIT_COMPLETED) {
+                return $this->badRequestResponse('Dokumen transaksi logistik ini sudah berstatus ditutup.');
             }
 
-            $transit->items()->with('internalItem')->get()->each(function ($item) {
-                $item->internalItem->update(['status' => InternalItem::STATUS_IN_TRANSIT]);
-            });
+            $currentScannedCount = $transit->items()->where('transit_status', TransitItem::STATUS_SCANNED_OUT)->count();
 
-            $transit->update([
-                'status' => Transit::STATUS_IN_TRANSIT,
-                'departed_at' => now(),
+            // Koreksi Celah 4: Validasi minimum scan. Tolak eksekusi jika operator belum menscan satu pun boks barang
+            if ($currentScannedCount === 0) {
+                return $this->badRequestResponse('Gagal menutup dokumen. Anda belum memindai satu pun boks biner ke dalam troli.');
+            }
+
+            $missingItemsCount = $transit->items()->where('transit_status', TransitItem::STATUS_PENDING)->count();
+
+            // Skenario A: Transit Mengalami Selisih Kurang (MISSING)
+            if ($missingItemsCount > 0) {
+                $transit->items()->where('transit_status', TransitItem::STATUS_PENDING)->update([
+                    'transit_status' => TransitItem::STATUS_MISSING
+                ]);
+
+                if (!$this->hasPendingMissingTransitAnomaly($transit)) {
+                    $anomaly = $this->createTransitAnomaly(
+                        $transit,
+                        Anomaly::DISCREPANCY_MISSING,
+                        'MULTIPLE_ITEMS_MISSING',
+                        $transit->expected_total,
+                        $currentScannedCount,
+                        $request
+                    );
+                }
+
+                // Koreksi Celah 7: Selalu sinkronkan hitungan field cache berdasarkan kalkulasi DB aktual
+                $transit->update([
+                    'status' => Transit::STATUS_INVESTIGATION_REQUIRED,
+                    'arrived_at' => now(),
+                    'received_total' => $currentScannedCount
+                ]);
+
+                return $this->successResponse(
+                    array_merge(
+                        $transit->fresh(['items.internalItem'])->toArray(),
+                        [
+                            'requires_evidence' => true,
+                            'anomaly_id' => isset($anomaly) ? $anomaly->id : null,
+                        ]
+                    ),
+                    'Transit ditutup dengan selisih kurang! Sistem memaksa operator mengambil bukti rekaman kamera.'
+                );
+            }
+
+            // Skenario B: Jalur Lulus Sempurna (Match 100%) - Koreksi Celah 6 (Bulk Update No N+1 Query)
+            $scannedItemEntries = $transit->items()->where('transit_status', TransitItem::STATUS_SCANNED_OUT)->get();
+            $internalItemIds = $scannedItemEntries->pluck('internal_item_id')->toArray();
+
+            // 1. Mutasi Lokasi Fisik Massal di DB
+            InternalItem::whereIn('id', $internalItemIds)->update([
+                'current_warehouse_id' => $transit->dest_warehouse_id,
+                'status' => InternalItem::STATUS_AVAILABLE,
+                'updated_at' => now()
             ]);
 
-            return $this->successResponse(
-                $transit->fresh(['items.internalItem']),
-                'Barang resmi dalam perjalanan.'
-            );
-        });
-    }
-
-    public function scanIn(TransitScanRequest $request, Transit $transit): JsonResponse
-    {
-        if (!in_array($transit->status, [Transit::STATUS_IN_TRANSIT, Transit::STATUS_INVESTIGATION_REQUIRED], true)) {
-            return $this->badRequestResponse('Surat jalan transit tidak dalam status IN_TRANSIT.');
-        }
-
-        return DB::transaction(function () use ($request, $transit) {
-            $item = $this->findTransitItemByBarcode($transit, $request->validated('barcode'));
-
-            if (!$item) {
-                $transit->update(['status' => Transit::STATUS_INVESTIGATION_REQUIRED]);
-                $anomaly = $this->createTransitAnomaly(
-                    $transit,
-                    Anomaly::DISCREPANCY_OVER,
-                    substr($request->validated('barcode'), 0, 50),
-                    $transit->expected_total,
-                    $transit->received_total + 1,
-                    $request
-                );
-
-                return $this->badRequestResponse(
-                    'Barcode tidak terdaftar dalam surat jalan transit. Status menjadi INVESTIGATION_REQUIRED.',
-                    [
-                        'requires_evidence' => true,
-                        'anomaly_id' => $anomaly->id,
-                        'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences",
-                    ]
-                );
-            }
-
-            if ($item->transit_status === TransitItem::STATUS_SCANNED_IN) {
-                $transit->update(['status' => Transit::STATUS_INVESTIGATION_REQUIRED]);
-                $anomaly = $this->createTransitAnomaly(
-                    $transit,
-                    Anomaly::DISCREPANCY_OVER,
-                    $item->internalItem->sku,
-                    $transit->expected_total,
-                    $transit->received_total + 1,
-                    $request
-                );
-
-                return $this->badRequestResponse(
-                    'Barang sudah discan masuk. Status menjadi INVESTIGATION_REQUIRED.',
-                    [
-                        'requires_evidence' => true,
-                        'anomaly_id' => $anomaly->id,
-                        'evidence_upload_url' => "/api/v1/anomalies/{$anomaly->id}/evidences",
-                    ]
-                );
-            }
-
-            if ($item->transit_status !== TransitItem::STATUS_SCANNED_OUT) {
-                return $this->badRequestResponse('Barang belum discan keluar dari gudang asal.');
-            }
-
-            $item->update([
+            // 2. Koreksi Celah 3 (Fase 2): Rekam jejak masuk massal (Scan-In terotomatisasi timestamp penutupan)
+            $transit->items()->where('transit_status', TransitItem::STATUS_SCANNED_OUT)->update([
                 'transit_status' => TransitItem::STATUS_SCANNED_IN,
                 'scan_in_by' => $request->user('api')->id,
                 'scanned_in_at' => now(),
+                'updated_at' => now()
             ]);
 
-            $item->internalItem->update([
-                'current_warehouse_id' => $transit->dest_warehouse_id,
-                'status' => InternalItem::STATUS_AVAILABLE,
-            ]);
-
-            $transit->increment('received_total');
-
-            return $this->successResponse(
-                $item->fresh(['internalItem', 'scanInOperator.role']),
-                'Scan masuk berhasil.'
-            );
-        });
-    }
-
-    public function complete(Request $request, Transit $transit): JsonResponse
-    {
-        if (!in_array($transit->status, [Transit::STATUS_IN_TRANSIT, Transit::STATUS_INVESTIGATION_REQUIRED], true)) {
-            return $this->badRequestResponse('Surat jalan transit belum bisa diselesaikan.');
-        }
-
-        return DB::transaction(function () use ($request, $transit) {
-            $missingCount = $transit->items()
-                ->where('transit_status', TransitItem::STATUS_SCANNED_OUT)
-                ->update(['transit_status' => TransitItem::STATUS_MISSING]);
-
-            if ($missingCount > 0 && !$this->hasPendingMissingTransitAnomaly($transit)) {
-                $this->createTransitAnomaly(
-                    $transit,
-                    Anomaly::DISCREPANCY_MISSING,
-                    'MULTIPLE',
-                    $transit->expected_total,
-                    $transit->received_total,
-                    $request
-                );
-            }
-
-            $status = $this->hasPendingTransitAnomaly($transit)
-                ? Transit::STATUS_INVESTIGATION_REQUIRED
-                : Transit::STATUS_TRANSIT_COMPLETED;
+            $finalReceivedCount = $transit->items()->where('transit_status', TransitItem::STATUS_SCANNED_IN)->count();
 
             $transit->update([
-                'status' => $status,
+                'status' => Transit::STATUS_TRANSIT_COMPLETED,
                 'arrived_at' => now(),
+                'received_total' => $finalReceivedCount // Terjaga kebersihannya dari out-of-sync
             ]);
 
             return $this->successResponse(
                 $transit->fresh(['items.internalItem']),
-                $status === Transit::STATUS_TRANSIT_COMPLETED
-                ? 'Transit selesai normal.'
-                : 'Transit selesai dengan selisih. Perlu investigasi supervisor.'
+                'Seluruh pergerakan komponen boks tervalidasi utuh di gudang tujuan.'
             );
         });
     }
 
     private function findTransitItemByBarcode(Transit $transit, string $barcode): ?TransitItem
     {
+        // Koreksi Celah 3: Gunakan UPPER pencarian mentah untuk memotong hambatan kapitalisasi mesin database
         return TransitItem::query()
-            ->with('internalItem')
             ->where('transit_id', $transit->id)
-            ->whereHas('internalItem', fn($query) => $query->where('internal_barcode', $barcode))
-            ->lockForUpdate()
+            ->whereHas('internalItem', fn($query) => $query->whereRaw('UPPER(internal_barcode) = ?', [$barcode]))
             ->first();
     }
 
@@ -336,16 +316,6 @@ class TransitController extends Controller
             ->where('reference_type', Transit::class)
             ->where('reference_id', $transit->id)
             ->where('discrepancy_type', Anomaly::DISCREPANCY_MISSING)
-            ->where('status', Anomaly::STATUS_PENDING_REVIEW)
-            ->exists();
-    }
-
-    private function hasPendingTransitAnomaly(Transit $transit): bool
-    {
-        return Anomaly::query()
-            ->where('anomaly_type', Anomaly::TYPE_TRANSIT_DISCREPANCY)
-            ->where('reference_type', Transit::class)
-            ->where('reference_id', $transit->id)
             ->where('status', Anomaly::STATUS_PENDING_REVIEW)
             ->exists();
     }
