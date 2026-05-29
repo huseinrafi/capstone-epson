@@ -39,7 +39,6 @@ export default function CreateTransit() {
     }, [token]);
 
     // 2. LOAD BARANG YANG AVAILABLE BERDASARKAN GUDANG ASAL YANG DIPILIH
-    // GANTI useEffect kedua di file CreateTransit.jsx Anda dengan kode ini:
     useEffect(() => {
         if (!originWh) {
             setAvailableItems([]);
@@ -50,23 +49,15 @@ export default function CreateTransit() {
             setIsFetchingItems(true);
             setSelectedItems([]);
             try {
-                const res = await fetch(`${import.meta.env.VITE_API_URL}/items?per_page=100`, {
+                const res = await fetch(`${import.meta.env.VITE_API_URL}/items?per_page=100&status=AVAILABLE&warehouse_id=${originWh}`, {
                     headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
                 });
                 const result = await res.json();
-                if (res.ok) {
+
+                if (res.ok && result.success) {
+                    // Pembongkaran struktur pagination Laravel
                     const rawItems = result.data?.data || result.data || [];
-
-                    // PERBAIKAN FILTER: Mengantisipasi perbedaan penamaan key warehouse_id di database teman Anda
-                    const filtered = rawItems.filter(item => {
-                        // Ambil ID gudang boks, dukung format snake_case maupun camelCase dari API
-                        const itemWarehouseId = item.current_warehouse_id || item.warehouse_id || item.warehouse?.id;
-
-                        // Pastikan boks berstatus AVAILABLE dan berada di gudang asal yang Anda klik (Warehouse Test)
-                        return item.status === 'AVAILABLE' && itemWarehouseId === originWh;
-                    });
-
-                    setAvailableItems(filtered);
+                    setAvailableItems(rawItems);
                 }
             } catch (err) {
                 console.error('Gagal memuat boks internal:', err);
@@ -88,6 +79,7 @@ export default function CreateTransit() {
     // 3. EKSEKUSI PENYIMPANAN & TRIGER PRINT SURAT JALAN
     const handleSubmit = async (e) => {
         e.preventDefault();
+
         if (selectedItems.length === 0) {
             alert('Pilih minimal 1 boks komponen untuk dipindahkan!');
             return;
@@ -100,6 +92,23 @@ export default function CreateTransit() {
         setIsLoading(true);
         setError(null);
 
+        // GENERATE NOMOR TRANSIT MANDIRI AGAR LOLOS VALIDASI BACKEND
+        const dateObj = new Date();
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        const randomNum = Math.floor(1000 + Math.random() * 9000); // 4 digit angka acak
+
+        const generatedTransitNumber = `TRX-${year}${month}${day}-${randomNum}`;
+
+        // MASUKKAN KE DALAM PAYLOAD PAYLOAD
+        const payload = {
+            transit_number: generatedTransitNumber, // <--- INI KUNCI UTAMA PENYELAMAT VALIDASI
+            origin_warehouse_id: originWh,
+            dest_warehouse_id: destWh,
+            internal_item_ids: selectedItems
+        };
+
         try {
             const response = await fetch(`${import.meta.env.VITE_API_URL}/transits`, {
                 method: 'POST',
@@ -108,27 +117,41 @@ export default function CreateTransit() {
                     'Accept': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({
-                    origin_warehouse_id: originWh,
-                    dest_warehouse_id: destWh,
-                    internal_item_ids: selectedItems // Key array ID sesuai StoreTransitRequest teman Anda
-                })
+                body: JSON.stringify(payload)
             });
 
             const result = await response.json();
 
-            if (response.ok && result.success) {
-                alert(`Surat Jalan ${result.data.transit_number} Berhasil Diterbitkan!`);
+            if (response.status === 422) {
+                console.error('Eror Validasi Backend:', result.errors);
+                const errorMessages = result.errors ? Object.values(result.errors).flat().join(', ') : result.message;
+                setError(`Validasi Gagal: ${errorMessages}`);
+                setIsLoading(false);
+                return;
+            }
 
-                // Fungsi Otomatis Cetak Dokumen via Browser untuk ditempel di palet/troli kurir
-                window.print();
+            // Mendukung penamaan response format sukses kelompok Anda
+            // CARI BLOK COCOK PADA VARIABEL API RESPONSE SUKSES DI CreateTransit.jsx ANDA:
+            if (response.ok && (result.success || result.status === 'SUCCESS')) {
 
-                navigate('/desktop/transits'); // Kembalikan ke halaman daftar utama desktop
+                // Cari objek boks lengkap yang dicentang oleh user untuk diambil data part_name & barcodenya
+                const itemsToPrint = availableItems.filter(item => selectedItems.includes(item.id));
+
+                alert(`Surat Jalan ${generatedTransitNumber} Berhasil Diterbitkan! Menuju halaman cetak label...`);
+
+                // Pindahkan operator ke halaman khusus cetak label barcode dengan membawa data lengkap
+                navigate('/desktop/transit/print', {
+                    state: {
+                        transitNumber: generatedTransitNumber,
+                        itemsToPrint: itemsToPrint
+                    }
+                });
+
             } else {
                 setError(result.message || 'Gagal menerbitkan dokumen transit.');
             }
         } catch (err) {
-            console.error(err);
+            console.error('Koneksi Gagal:', err);
             setError('Koneksi ke server backend terputus.');
         } finally {
             setIsLoading(false);

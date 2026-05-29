@@ -16,6 +16,7 @@ import Forbidden from './components/Forbidden';
 import Profile from "./components/Profile";
 import TransitQueue from "./components/TransitQueue";
 import CreateTransit from './components/CreateTransit';
+import PrintTransitLabel from './components/PrintTransitLabel';
 
 // ─── KOMPONEN PROTEKSI AKSES ROLE (RBAC ENGINE) ──────────────────────────────
 function ProtectedRoute({ children, allowedRoles }) {
@@ -91,6 +92,14 @@ export default function App() {
           element = {
             <ProtectedRoute allowedRoles={desktopControlRoles}>
               <CreateTransit />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/print-transit-label"
+          element = {
+            <ProtectedRoute allowedRoles={desktopControlRoles}>
+              <PrintTransitLabel />
             </ProtectedRoute>
           }
         />

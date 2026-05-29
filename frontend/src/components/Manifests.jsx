@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const STATUS_STYLE = {
@@ -417,6 +417,7 @@ export default function Manifests() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const role = localStorage.getItem('role') || '';
+  const navigate = useNavigate();
   const canCreate = ['admin_gudang', 'supervisor', 'manajer'].includes(role);
   const canDelete = ['supervisor', 'manajer'].includes(role);
 
@@ -589,15 +590,26 @@ export default function Manifests() {
               FILTERS
             </button>
             {canCreate && (
-              <button
-                onClick={() => setShowCreate(true)}
-                className="flex items-center gap-2 bg-[#002060] text-white px-4 py-2 text-sm font-bold hover:bg-blue-900 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                CREATE MANIFEST
-              </button>
+              <>
+                <button
+                  onClick={() => navigate('/create-transit')}
+                  className="flex items-center gap-2 border border-gray-300 text-[#002060] px-4 py-2 text-sm font-bold hover:bg-[#002060] hover:text-white transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                  ISSUE TRANSIT DOCUMENT
+                </button>
+                <button
+                  onClick={() => setShowCreate(true)}
+                  className="flex items-center gap-2 bg-[#002060] text-white px-4 py-2 text-sm font-bold hover:bg-blue-900 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  CREATE MANIFEST
+                </button>
+              </>
             )}
           </div>
         </header>

@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\LookupController;
 use App\Http\Controllers\Api\OperationalNotificationController;
 use App\Http\Controllers\Api\SupervisorNotificationController;
 use App\Http\Controllers\Api\TransitController;
+use App\Http\Controllers\Api\UserManagementController;
 use App\Http\Controllers\Api\VendorController;
 use App\Http\Controllers\Api\WarehouseController;
 use Illuminate\Support\Facades\Route;
@@ -78,6 +79,14 @@ Route::prefix('v1')->group(function () {
             Route::get('/dashboard/overview', [DashboardAnalyticsController::class, 'overview']);
             Route::get('/dashboard/anomalies/drilldown', [DashboardAnalyticsController::class, 'anomalyDrilldown']);
             Route::get('/dashboard/transactions/drilldown', [DashboardAnalyticsController::class, 'transactionDrilldown']);
+        });
+
+        Route::middleware('role:manajer')->group(function () {
+            Route::get('/users', [UserManagementController::class, 'index']);
+            Route::get('/users/roles', [UserManagementController::class, 'roles']);
+            Route::post('/users', [UserManagementController::class, 'store']);
+            Route::patch('/users/{user}/role', [UserManagementController::class, 'updateRole']);
+            Route::patch('/users/{user}/toggle-status', [UserManagementController::class, 'toggleStatus']);
         });
     });
 });

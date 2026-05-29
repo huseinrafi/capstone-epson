@@ -96,7 +96,7 @@ export default function TransitQueue() {
 
   const handleAction = (transit) => {
     if (transit.status === 'TRANSIT_INIT' || transit.status === 'IN_TRANSIT') {
-      navigate(`/transit/${transit.id}`);
+      navigate(`/transit-scanner/${transit.id}`);
     } else if (transit.status === 'INVESTIGATION_REQUIRED') {
       const originName = transit.origin_warehouse?.name || transit.originWarehouse?.name || '—';
       const destName = transit.destination_warehouse?.name || transit.destinationWarehouse?.name || '—';
