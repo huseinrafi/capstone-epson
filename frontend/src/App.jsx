@@ -14,6 +14,8 @@ import ManifestCompleted from './components/ManifestCompleted';
 import TransitScanner from './components/TransitScanner';
 import Forbidden from './components/Forbidden';
 import Profile from "./components/Profile";
+import TransitQueue from "./components/TransitQueue";
+import CreateTransit from './components/CreateTransit';
 
 // ─── KOMPONEN PROTEKSI AKSES ROLE (RBAC ENGINE) ──────────────────────────────
 function ProtectedRoute({ children, allowedRoles }) {
@@ -81,6 +83,14 @@ export default function App() {
           element = {
             <ProtectedRoute allowedRoles={desktopControlRoles}>
               <Manifests />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/create-transit"
+          element = {
+            <ProtectedRoute allowedRoles={desktopControlRoles}>
+              <CreateTransit />
             </ProtectedRoute>
           }
         />
@@ -153,6 +163,14 @@ export default function App() {
         />
         <Route
           path="/transit"
+          element = {
+            <ProtectedRoute allowedRoles={mobileExecutionRoles}>
+              <TransitQueue />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/transit-scanner/:id"
           element = {
             <ProtectedRoute allowedRoles={mobileExecutionRoles}>
               <TransitScanner />

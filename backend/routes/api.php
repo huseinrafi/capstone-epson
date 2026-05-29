@@ -45,11 +45,10 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/transits', [TransitController::class, 'index']);
             Route::get('/transits/{transit}', [TransitController::class, 'show']);
-            Route::post('/transits/{transit}/scans', [TransitController::class, 'scans']);
-            // Route::post('/transits/{transit}/depart', [TransitController::class, 'depart']);
-            // Route::post('/transits/{transit}/scan-in', [TransitController::class, 'scanIn']);
-            // Route::post('/transits/{transit}/complete', [TransitController::class, 'complete']);
-            Route::post('/transits/{transit}/finish', [TransitController::class, 'finish']);
+            Route::post('/transits/{transit}/scan-out', [TransitController::class, 'scanOut']);
+            Route::post('/transits/{transit}/depart', [TransitController::class, 'depart']);
+            Route::post('/transits/{transit}/scan-in', [TransitController::class, 'scanIn']);
+            Route::post('/transits/{transit}/complete', [TransitController::class, 'complete']);
         });
 
         Route::middleware('role:admin_gudang,supervisor,manajer')->group(function () {
