@@ -50,6 +50,38 @@ class TransitController extends Controller
                 ], 422));
             }
 
+            // Validasi: Cek apakah ada barang yang masih dalam transit aktif (scan-in belum selesai)
+            $itemsInActiveTransit = TransitItem::query()
+                ->whereIn('internal_item_id', $validated['internal_item_ids'])
+                ->whereHas('transit', function ($q) {
+                    $q->whereIn('status', [
+                        Transit::STATUS_TRANSIT_INIT,
+                        Transit::STATUS_IN_TRANSIT,
+                        Transit::STATUS_INVESTIGATION_REQUIRED,
+                    ]);
+                })
+                ->whereIn('transit_status', [
+                    TransitItem::STATUS_PENDING,
+                    TransitItem::STATUS_SCANNED_OUT,
+                ])
+                ->with('internalItem:id,internal_barcode')
+                ->get();
+
+            if ($itemsInActiveTransit->isNotEmpty()) {
+                $blockedBarcodes = $itemsInActiveTransit
+                    ->map(fn($ti) => $ti->internalItem->internal_barcode ?? $ti->internal_item_id)
+                    ->unique()
+                    ->values();
+
+                abort(response()->json([
+                    'success' => false,
+                    'message' => 'Ada barang yang masih dalam proses transit aktif. Selesaikan scan-in terlebih dahulu sebelum menerbitkan surat jalan baru.',
+                    'errors' => [
+                        'internal_item_ids' => $blockedBarcodes,
+                    ],
+                ], 422));
+            }
+
             $invalidItems = $items->filter(
                 fn($item) => $item->current_warehouse_id !== $validated['origin_warehouse_id']
                 || $item->status !== InternalItem::STATUS_AVAILABLE
@@ -182,29 +214,65 @@ class TransitController extends Controller
             return $this->badRequestResponse('Surat jalan transit tidak dalam status TRANSIT_INIT.');
         }
 
-        return DB::transaction(function () use ($transit) {
-            $pendingItem = $transit->items()
+        return DB::transaction(function () use ($request, $transit) {
+            $missingCount = $transit->items()
                 ->where('transit_status', TransitItem::STATUS_PENDING)
-                ->lockForUpdate()
-                ->first();
+                ->update(['transit_status' => TransitItem::STATUS_MISSING]);
 
-            if ($pendingItem) {
-                return $this->badRequestResponse('Masih ada barang yang belum discan keluar.');
+            $createdAnomaly = null;
+            if ($missingCount > 0 && !$this->hasPendingMissingTransitAnomaly($transit)) {
+                $createdAnomaly = $this->createTransitAnomaly(
+                    $transit,
+                    Anomaly::DISCREPANCY_MISSING,
+                    'MULTIPLE',
+                    $transit->expected_total,
+                    $transit->sent_total,
+                    $request
+                );
             }
 
-            $transit->items()->with('internalItem')->get()->each(function ($item) {
+            $status = $this->hasPendingTransitAnomaly($transit)
+                ? Transit::STATUS_INVESTIGATION_REQUIRED
+                : Transit::STATUS_IN_TRANSIT;
+
+            $transit->items()->where('transit_status', TransitItem::STATUS_SCANNED_OUT)->with('internalItem')->get()->each(function ($item) {
                 $item->internalItem->update(['status' => InternalItem::STATUS_IN_TRANSIT]);
             });
 
             $transit->update([
-                'status' => Transit::STATUS_IN_TRANSIT,
+                'status' => $status,
                 'departed_at' => now(),
             ]);
 
-            return $this->successResponse(
-                $transit->fresh(['items.internalItem']),
-                'Barang resmi dalam perjalanan.'
-            );
+            $freshTransit = $transit->fresh(['items.internalItem']);
+
+            if ($status === Transit::STATUS_INVESTIGATION_REQUIRED) {
+                $latestAnomaly = $createdAnomaly;
+                if (!$latestAnomaly) {
+                    $latestAnomaly = Anomaly::query()
+                        ->where('anomaly_type', Anomaly::TYPE_TRANSIT_DISCREPANCY)
+                        ->where('reference_type', Transit::class)
+                        ->where('reference_id', $transit->id)
+                        ->where('status', Anomaly::STATUS_PENDING_REVIEW)
+                        ->latest()
+                        ->first();
+                }
+
+                return $this->successResponse([
+                    'requires_evidence' => true,
+                    'status' => Transit::STATUS_INVESTIGATION_REQUIRED,
+                    'anomaly_status' => 'MISSING',
+                    'anomaly' => $latestAnomaly,
+                    'evidence_upload_url' => $latestAnomaly ? "/api/v1/anomalies/{$latestAnomaly->id}/evidences" : null,
+                    'transit' => $freshTransit
+                ], 'Transit depart dengan selisih. Perlu investigasi supervisor.');
+            }
+
+            return $this->successResponse([
+                'requires_evidence' => false,
+                'status' => Transit::STATUS_IN_TRANSIT,
+                'transit' => $freshTransit
+            ], 'Barang resmi dalam perjalanan.');
         });
     }
 
