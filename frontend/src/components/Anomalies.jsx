@@ -402,14 +402,6 @@ export default function Anomalies() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Filter button */}
-            <button className="flex items-center gap-2 border border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-              </svg>
-              FILTER
-            </button>
-
             {/* Log Detail — di topbar pojok kanan */}
             {selected && (
               <button
@@ -430,8 +422,6 @@ export default function Anomalies() {
 
           {/* LIST — 30% */}
           <div className="w-[30%] min-w-[260px] max-w-[380px] flex flex-col border-r border-gray-200 bg-white overflow-hidden">
-
-            {/* Filter tabs */}
             <div className="flex flex-wrap px-3 py-2 gap-1 border-b border-gray-100">
               {[
                 { key: '', label: 'ALL', count: counts.ALL },
