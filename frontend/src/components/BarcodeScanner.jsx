@@ -507,7 +507,7 @@ export default function BarcodeScanner() {
             </div>
           </div>
         )}
-        {['MISMATCH', 'NOT_FOUND', 'OVER', 'UNEXPECTED', 'ERROR'].includes(scanStatus) && (
+        {['MISMATCH', 'NOT_FOUND', 'OVER', 'EXCESSIVE', 'UNEXPECTED', 'ERROR', 'MISSING'].includes(scanStatus) && (
           <div className="bg-white border-2 border-[#DC3545] p-3 flex items-center gap-4 shadow-sm">
             <div className="w-12 h-12 rounded-full border-2 border-[#DC3545] flex items-center justify-center text-[#DC3545] shrink-0">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

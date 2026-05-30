@@ -325,7 +325,7 @@ export default function CaptureEvidence() {
       <div className="mx-4 mb-4 bg-white border border-gray-200 px-4 py-3 flex justify-between items-center">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-gray-400 font-bold block">LOCATION</span>
-          <p className="text-xs font-bold text-gray-700">INBOUND-1</p>
+          <p className="text-xs font-bold text-gray-700">{isTransit ? `TRANSIT (${state.originWarehouse || '—'} → ${state.destWarehouse || '—'})` : 'INBOUND-1'}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-gray-400 font-bold block">TIMESTAMP</span>

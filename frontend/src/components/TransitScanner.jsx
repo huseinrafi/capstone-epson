@@ -71,6 +71,17 @@ export default function TransitScanner() {
 
         // Validasi Status Pengamanan Alur
         if (tData.status === 'TRANSIT_INIT' || tData.status === 'IN_TRANSIT' || tData.status === 'INVESTIGATION_REQUIRED') {
+          // Cek apakah ada anomali PENDING_REVIEW → redirect ke waiting approval (sama seperti inbound)
+          if (tData.status === 'INVESTIGATION_REQUIRED') {
+            const hasPendingAnomaly = tData.anomalies?.some(a => a.status === 'PENDING_REVIEW');
+            if (hasPendingAnomaly) {
+              navigate(`/waiting-approval/${transitId}`, {
+                replace: true,
+                state: { doNumber: tData.transit_number, isTransit: true }
+              });
+              return;
+            }
+          }
           setDoReady(true);
         } else {
           setDoError(`Akses ditolak. Dokumen transit sudah berstatus: ${tData.status}`);
@@ -234,8 +245,11 @@ export default function TransitScanner() {
         // → arahkan ke capture evidence dengan label yang benar dari backend
         const anomalyData = result.data?.anomaly || result.anomaly;
         const resolvedAnomalyId = anomalyErrors.anomaly_id || anomalyData?.id || result.data?.anomaly_id;
-        // Gunakan label dari backend, jangan fallback ke 'OVER' — biarkan null jika tidak ada
-        const resolvedAnomalyType = anomalyErrors.anomaly_type || result.data?.anomaly_type || result.anomaly_type || anomalyData?.discrepancy_type || null;
+        // Resolve anomaly type dari backend response, lalu mapping OVER → EXCESSIVE
+        let resolvedAnomalyType = anomalyErrors.anomaly_type || result.data?.anomaly_type || result.anomaly_type || anomalyData?.discrepancy_type || null;
+        if (resolvedAnomalyType === 'OVER') {
+          resolvedAnomalyType = 'EXCESSIVE';
+        }
         const evidenceUrl = anomalyErrors.evidence_upload_url || result.data?.evidence_upload_url;
 
         setRecentScans(prev => [{
@@ -336,19 +350,28 @@ export default function TransitScanner() {
         sessionStorage.removeItem(scanStorageKey(transitId));
         stopCamera();
 
-        // Evaluasi Apakah Muncul Anomali Kurang (MISSING) setelah submit akhir teman Anda
-        if (result.data?.status === 'INVESTIGATION_REQUIRED' || result.status === 'INVESTIGATION_REQUIRED' || result.data?.requires_evidence) {
-          const anomalyObj = result.data?.anomaly || result.anomaly;
+        // Evaluasi Apakah Muncul Anomali Kurang (MISSING) setelah submit akhir
+        // Backend complete() mengembalikan: { success: true, data: { requires_evidence, status, anomaly, evidence_upload_url } }
+        const respData = result.data;
+        const requiresEvidence = respData?.requires_evidence === true;
+        const respStatus = respData?.status;
+        const isInvestigation = respStatus === 'INVESTIGATION_REQUIRED';
+
+        if (requiresEvidence || isInvestigation) {
+          const anomalyObj = respData?.anomaly;
+          const anomalyId = anomalyObj?.id || respData?.anomaly_id;
+          const evidenceUrl = respData?.evidence_upload_url || (anomalyId ? `/api/v1/anomalies/${anomalyId}/evidences` : null);
+
           navigate(`/capture-evidence/${transitId}`, {
             state: {
-              anomalyId: anomalyObj?.id || result.data?.anomaly_id,
+              anomalyId: anomalyId,
               anomalyType: 'MISSING',
               doNumber: transitNumber,
               scannedBarcode: 'PART QUANTITY MISSING',
               isTransit: true,
               originWarehouse: transitData?.originWarehouse?.name || transitData?.origin_warehouse?.name,
               destWarehouse: transitData?.destinationWarehouse?.name || transitData?.destination_warehouse?.name || transitData?.dest_warehouse?.name,
-              evidenceUploadUrl: result.data?.evidence_upload_url || `/api/v1/anomalies/${anomalyObj?.id}/evidences`,
+              evidenceUploadUrl: evidenceUrl,
             }
           });
         } else {
@@ -483,7 +506,7 @@ export default function TransitScanner() {
             </div>
           </div>
         )}
-        {['MISMATCH', 'NOT_FOUND', 'OVER', 'UNEXPECTED', 'ERROR'].includes(scanStatus) && (
+        {['MISMATCH', 'NOT_FOUND', 'OVER', 'EXCESSIVE', 'UNEXPECTED', 'ERROR', 'MISSING'].includes(scanStatus) && (
           <div className="bg-white border-2 border-[#DC3545] p-3 flex items-center gap-4 shadow-sm">
             <div className="w-12 h-12 rounded-full border-2 border-[#DC3545] flex items-center justify-center text-[#DC3545] shrink-0">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
