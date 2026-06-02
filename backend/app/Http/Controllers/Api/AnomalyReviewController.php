@@ -8,6 +8,7 @@ use App\Models\Anomaly;
 use App\Models\AuditLog;
 use App\Models\DeliveryOrder;
 use App\Models\DoItemBox;
+use App\Models\InternalItem;
 use App\Models\Transit;
 use App\Services\AnomalyNotificationService;
 use App\Traits\ApiResponse;
@@ -181,6 +182,13 @@ class AnomalyReviewController extends Controller
             'status' => DoItemBox::STATUS_PENDING,
             'scanned_at' => null,
         ]);
+
+        InternalItem::query()
+            ->where('delivery_order_id', $deliveryOrder->id)
+            ->where('status', InternalItem::STATUS_AVAILABLE)
+            ->update([
+                'status' => InternalItem::STATUS_DISPOSED,
+            ]);
 
         $deliveryOrder->update([
             'scanned_total' => 0,
