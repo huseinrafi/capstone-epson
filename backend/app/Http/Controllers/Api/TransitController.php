@@ -63,6 +63,7 @@ class TransitController extends Controller
                 ->whereIn('transit_status', [
                     TransitItem::STATUS_PENDING,
                     TransitItem::STATUS_SCANNED_OUT,
+                    TransitItem::STATUS_MISSING,
                 ])
                 ->with('internalItem:id,internal_barcode')
                 ->get();

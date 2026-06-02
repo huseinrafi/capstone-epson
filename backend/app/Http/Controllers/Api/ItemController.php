@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\InternalItem;
+use App\Models\Transit;
+use App\Models\TransitItem;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +20,23 @@ class ItemController extends Controller
             ->with(['currentWarehouse', 'deliveryOrder'])
             ->when($request->status, fn($q, $status) => $q->where('status', $status))
             ->when($request->warehouse_id, fn($q, $whId) => $q->where('current_warehouse_id', $whId))
+            ->when($request->status === InternalItem::STATUS_AVAILABLE, function ($q) {
+                $q->whereDoesntHave('transitItems', function ($transitItemQuery) {
+                    $transitItemQuery
+                        ->whereIn('transit_status', [
+                            TransitItem::STATUS_PENDING,
+                            TransitItem::STATUS_SCANNED_OUT,
+                            TransitItem::STATUS_MISSING,
+                        ])
+                        ->whereHas('transit', function ($transitQuery) {
+                            $transitQuery->whereIn('status', [
+                                Transit::STATUS_TRANSIT_INIT,
+                                Transit::STATUS_IN_TRANSIT,
+                                Transit::STATUS_INVESTIGATION_REQUIRED,
+                            ]);
+                        });
+                });
+            })
             ->latest()
             ->paginate($request->integer('per_page', 15));
 

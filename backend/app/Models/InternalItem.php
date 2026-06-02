@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InternalItem extends Model
 {
@@ -52,5 +53,10 @@ class InternalItem extends Model
     public function currentWarehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class, 'current_warehouse_id');
+    }
+
+    public function transitItems(): HasMany
+    {
+        return $this->hasMany(TransitItem::class);
     }
 }
