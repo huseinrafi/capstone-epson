@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -35,6 +36,19 @@ class Evidence extends Model
             'latitude' => 'decimal:8',
             'longitude' => 'decimal:8',
         ];
+    }
+
+    protected function fileUrl(): Attribute
+    {
+        return Attribute::get(function (?string $value, array $attributes): ?string {
+            $filePath = $attributes['file_path'] ?? null;
+
+            if (!$filePath) {
+                return $value;
+            }
+
+            return url('/storage/'.ltrim($filePath, '/'));
+        });
     }
 
     public function anomaly(): BelongsTo
