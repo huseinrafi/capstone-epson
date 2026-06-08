@@ -71,7 +71,7 @@ class ItemController extends Controller
      */
     public function show(string $id)
     {
-    //
+        //
     }
 
     /**
@@ -79,7 +79,7 @@ class ItemController extends Controller
      */
     public function update(Request $request, string $id)
     {
-    //
+        //
     }
 
     /**
@@ -87,7 +87,7 @@ class ItemController extends Controller
      */
     public function destroy(string $id)
     {
-    //
+        //
     }
     public function showByBarcode($barcode)
     {
