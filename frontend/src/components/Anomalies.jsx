@@ -33,24 +33,15 @@ const fmtTs = (d) => {
 
 const getEvidenceUrl = (url) => {
   if (!url) return '';
+  // Ambil origin dari browser saat ini (bekerja di laptop maupun HP)
+  // Path /storage/... akan di-proxy oleh Vite ke backend
+  const origin = window.location.origin;
   try {
-    const apiUri = new URL(import.meta.env.VITE_API_URL);
-    const backendOrigin = apiUri.origin;
-
-    // Jika absolute URL, ambil pathname saja lalu gabungkan dengan origin backend
     const fileUri = new URL(url);
-    return `${backendOrigin}${fileUri.pathname}`;
+    return `${origin}${fileUri.pathname}`;
   } catch (e) {
-    try {
-      const apiUri = new URL(import.meta.env.VITE_API_URL);
-      const backendOrigin = apiUri.origin;
-      if (url.startsWith('/')) {
-        return `${backendOrigin}${url}`;
-      }
-      return `${backendOrigin}/${url}`;
-    } catch (err) {
-      return url;
-    }
+    if (url.startsWith('/')) return `${origin}${url}`;
+    return `${origin}/${url}`;
   }
 };
 
