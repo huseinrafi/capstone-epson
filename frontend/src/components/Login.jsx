@@ -41,7 +41,7 @@ export default function Login() {
         } else if(userRole === 'admin_gudang'){
           navigate('/manifests');
         } else {
-          navigate('/dashboard');
+          navigate('/manifests');
         }
       }
     } catch (err) {

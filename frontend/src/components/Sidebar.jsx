@@ -3,17 +3,6 @@ import { Link, useLocation } from 'react-router-dom';
 // ─── ROLE PERMISSION MAP ──────────────────────────────────────────────────────
 const NAV_ITEMS = [
   {
-    to: '/dashboard',
-    label: 'Dashboard',
-    allowedRoles: ['supervisor', 'manajer'],
-    icon: (
-      <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-          d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-      </svg>
-    ),
-  },
-  {
     to: '/manifests',
     label: 'Manifests',
     allowedRoles: ['admin_gudang', 'supervisor', 'manajer'],

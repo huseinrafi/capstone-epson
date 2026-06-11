@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Register from './components/Register';
-import Dashboard from './components/Dashboard';
+
 import Manifests from './components/Manifests';
 import Anomalies from './components/Anomalies';
 import Analytics from './components/Analytics';
@@ -97,10 +97,10 @@ export default function App() {
     // Reset flag saat aplikasi di-load/mount
     window.isSessionExpiredAlerted = false;
 
-    // Lakukan pemeriksaan berkala setiap 10 detik
+    // Lakukan pemeriksaan berkala setiap 5 menit (tidak mengganggu saat demo)
     const interval = setInterval(() => {
       checkTokenExpiration();
-    }, 10000);
+    }, 300000);
 
     return () => clearInterval(interval);
   }, []);
@@ -162,14 +162,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/dashboard"
-          element = {
-            <ProtectedRoute allowedRoles={analyticsRoles}>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
+
         <Route
           path="/anomalies"
           element = {
