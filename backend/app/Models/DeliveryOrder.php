@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use App\Models\ScanResult;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -80,6 +81,30 @@ class DeliveryOrder extends Model
     {
         return $this->hasMany(Anomaly::class, 'reference_id')
             ->where('reference_type', self::class);
+    }
+
+    /**
+     * Internal items yang terdaftar setelah proses inbound selesai.
+     */
+    public function internalItems(): HasMany
+    {
+        return $this->hasMany(InternalItem::class);
+    }
+
+    /**
+     * Transit items milik internal items dari manifest ini.
+     * Digunakan untuk melacak riwayat perpindahan barang antar gudang.
+     */
+    public function transitItems(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            TransitItem::class,
+            InternalItem::class,
+            'delivery_order_id', // FK pada InternalItem → DeliveryOrder
+            'internal_item_id',  // FK pada TransitItem → InternalItem
+            'id',                // PK DeliveryOrder
+            'id'                 // PK InternalItem
+        );
     }
 
     public function isPending(): bool

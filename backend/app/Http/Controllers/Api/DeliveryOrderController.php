@@ -85,8 +85,20 @@ class DeliveryOrderController extends Controller
 
     public function show(DeliveryOrder $deliveryOrder): JsonResponse
     {
+        $deliveryOrder->load([
+            'vendor',
+            'warehouse',
+            'adminUser.role',
+            'items.boxes',
+            'anomalies.evidences',
+            // Riwayat perpindahan: internal items → transit items → transit → warehouses
+            'internalItems.currentWarehouse',
+            'internalItems.transitItems.transit.originWarehouse',
+            'internalItems.transitItems.transit.destinationWarehouse',
+        ]);
+
         return $this->successResponse(
-            $deliveryOrder->load(['vendor', 'warehouse', 'adminUser.role', 'items.boxes', 'anomalies.evidences']),
+            $deliveryOrder,
             'Detail manifest berhasil diambil.'
         );
     }
